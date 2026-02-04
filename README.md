@@ -139,11 +139,11 @@ python server/app.py
 
 确定客户端主机与kali在同一内网下后需要拿到kali的IP，用来访问服务端：
 
-![kali](.\hunter-server\photo\kali.png)
+![kali](./hunter-server/photo/kali.png)
 
 再将此地址填入客户端即可：
 
-![clientphoto](.\hunter-server\photo\clientphoto.png)
+![clientphoto](./hunter-server/photo/clientphoto.png)
 
 完成后即可开始测试！！
 
