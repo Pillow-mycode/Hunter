@@ -1,0 +1,12 @@
+# 忽略node_modules文件夹（前端项目）
+node_modules/
+# 忽略Python缓存文件
+__pycache__/
+*.pyc
+# 忽略IDE配置文件（VSCode）
+.vscode/
+# 忽略日志文件
+*.log
+# 忽略打包后的dist文件夹
+dist/
+*.env

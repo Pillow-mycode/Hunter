@@ -1,0 +1,67 @@
+暴力破解工具使用文档
+
+使用场景
+
+1. Web应用登录爆破
+2. API接口参数枚举
+3. 目录/文件爆破
+4. 多参数组合测试
+
+基本命令格式
+
+python brute_force.py -u 目标URL -p "参数=值来源"
+
+必需参数
+
+-u, --url    目标网址
+-p, --param  参数定义（格式：参数名=值来源，可多次使用）
+
+常用参数
+
+-t, --threads    线程数（默认：5）
+-m, --method     请求方法（GET/POST/PUT/DELETE，默认：POST）
+-o, --output     结果保存目录（默认：results）
+-to, --timeout   超时时间，单位秒（默认：10）
+-r, --retry      重试次数（默认：3）
+-d, --delay      请求延迟，单位毫秒（默认：0）
+--proxy          代理服务器
+--cookie         Cookie字符串
+--queue-size     任务队列大小（默认：1000）
+
+参数值来源格式
+
+1. 从文件读取：参数名=文件名.txt
+   示例：username=users.txt
+
+2. 单个固定值：参数名=固定值
+   示例：username=admin
+
+3. 多个固定值：参数名=值1,值2,值3
+   示例：username=admin,root,test
+
+文件格式要求
+
+参数文件应为纯文本文件，每行一个值
+示例users.txt内容：
+admin
+root
+test
+guest
+
+成功条件参数
+
+--success-status     期望的HTTP状态码
+--success-contains   响应包含的文本
+--success-not-contains 响应不包含的文本
+--success-regex      成功响应正则表达式
+
+输出和控制参数
+
+-v, --verbose    详细输出模式
+-q, --quiet      安静模式（不显示进度条）
+--save-all       保存所有结果（不仅仅是成功的）
+
+获取帮助
+
+查看完整帮助信息：
+python brute_force.py -h
