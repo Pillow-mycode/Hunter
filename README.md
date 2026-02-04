@@ -1,4 +1,6 @@
-![hunter](./hunter-server/photo/hunter.png)
+<p align="center">
+  ![hunter](./hunter-server/photo/hunter.png)
+</p>
 
 #                                              Hunter
 
