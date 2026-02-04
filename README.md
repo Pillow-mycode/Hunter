@@ -14,7 +14,7 @@ Hunter 是一个强大的自动化渗透测试系统。在这里，你不需要�
 
 ### 部署说明
 
-本项目主推将服务端部署到Kali上，虽然也支持Windows，但工具方面没有Kali方便。所以最好准备一台Kali主机或虚拟机。Kali虚拟机安装方式参考：[Kali Linux下载安装及配置（VMware虚拟机）保姆级图文教程（持续更新）kali安装2026最新，0基础可用，保姆级图文（2024年11月19日发布，2026/1/1最新更新）_kali虚拟机-CSDN博客](https://blog.csdn.net/m0_74030222/article/details/143866270?ops_request_misc=elastic_search_misc&request_id=1f3cdc30a9a4f5a0e585ab6f06852f7f&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~top_positive~default-1-143866270-null-null.nonlogin&utm_term=kali linux安装教程&spm=1018.2226.3001.4187)
+本项目主推将服务端部署到Kali上，虽然也支持Windows，但工具方面没有Kali方便。所以最好准备一台Kali主机或虚拟机。Kali虚拟机安装方式参考：[Kali Linux下载安装及配置（VMware虚拟机）保姆级图文教程（持续更新）kali安装2026最新，0基础可用，保姆级图文（2024年11月19日发布，2026/1/1最新更新）_kali虚拟机-CSDN博客](https://blog.csdn.net/m0_74030222/article/details/143866270?ops_request_misc=elastic_search_misc&request_id=1f3cdc30a9a4f5a0e585ab6f06852f7f&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~top_positive~default-1-143866270-null-null.nonlogin&utm_term=kali)
 
 **！！！注意：尽量不要将本项目部署到公网服务器上， 如果有特殊需求需要映射到公网，请做好服务器出入站限制**
 
