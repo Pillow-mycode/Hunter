@@ -1,5 +1,5 @@
 <p align="center">
-  ![hunter](./hunter-server/photo/hunter.png)
+  <img src="./hunter-server/photo/hunter.png" alt="hunter" width="300" />
 </p>
 
 #                                              Hunter
