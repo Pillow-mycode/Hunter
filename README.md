@@ -1,4 +1,4 @@
-![hunter](.\hunter-server\photo\hunter.png)
+![hunter](./hunter-server/photo/hunter.png)
 
 #                                              Hunter
 
