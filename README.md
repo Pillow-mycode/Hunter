@@ -264,7 +264,79 @@ hunter-server/
 
 将开发的工具包放入上面的目录的tools目录下，然后将工具的名称与简介按 "tool_name:description;" 填入 tools_readme 目录下的 all-tools.txt 中，最后写一个详细的 tool_name.md 文档放入 tools_readme 目录下即可。可以看项目中 brute_force_attack 的例子。
 
-#### 2、关于项目用法：
+#### 2、工具扩展指南
+                                                            
+  工具分类说明         
+  ```
+  ┌──────────────┬────────────┬─────────────────────────────────────────┐
+  │     类型     │    标签     │                  说明                   │                                                                                  
+  ├──────────────┼────────────┼─────────────────────────────────────────┤      
+  │ Kali原生工具  │ [KALI]     │ Kali Linux 预装工具，武器大师可直接调用    │
+  ├──────────────┼────────────┼─────────────────────────────────────────┤
+  │ 自定义工具    │ [CUSTOM]   │ 项目自研工具，需编写使用文档               │
+  ├──────────────┼────────────┼─────────────────────────────────────────┤
+  │ 外部工具      │ [EXTERNAL] │ 优秀的第三方工具，需额外安装               │
+  └──────────────┴────────────┴─────────────────────────────────────────┘
+  ```
+  ---
+  **添加自定义工具 [CUSTOM]**
+
+  适用于：你自己编写的 Python/Bash 脚本工具
+
+  步骤：
+
+  1. 创建工具目录和脚本
+  ```
+  tools/
+  └── your_tool_name/
+      ├── your_tool_name.py    # 你的工具脚本
+      └── wordlist.txt         # 可选：配套资源文件
+  ```
+  2. 编写工具文档（必须）：tools/tools_readme/your_tool_name.txt（文档应包含：功能说明、参数说明、使用示例）
+  3. 注册到工具列表：在 tools/tools_readme/all-tools.txt 中添加：[CUSTOM]your_tool_name.py:工具功能描述，详见 tools_readme/your_tool_name.txt;
+
+  **注意**： 武器大师使用自定义工具前会强制阅读文档，所以文档质量直接影响工具的使用效果。
+
+  ---
+  **添加外部工具 [EXTERNAL]**
+
+  适用于：优秀但 Kali 默认不自带的第三方工具
+
+  步骤：
+
+  1. 注册到工具列表：在 tools/tools_readme/all-tools.txt 中添加：[EXTERNAL]tool_name:工具功能描述;
+  2. 添加安装命令：在 agent/smart_brain/attack_tool_master.py 的 _get_install_command() 方法中添加：
+  ```
+  install_commands = {
+       **... 已有工具 ...**
+      "tool_name": "sudo apt install -y tool_name || pip install tool_name",
+  }
+  ```
+
+  工作流程： 武器大师使用外部工具时会自动检查是否已安装，未安装则自动执行安装命令。
+
+  ---
+  文件结构速查
+```
+  hunter-server/
+  ├── tools/
+  │   ├── your_custom_tool/        # 自定义工具目录
+  │   │   └── your_custom_tool.py
+  │   └── tools_readme/
+  │       ├── all-tools.txt        # 工具注册表（必改）
+  │       └── your_custom_tool.txt # 自定义工具文档（必写）
+  │
+  └── agent/smart_brain/
+      └── attack_tool_master.py    # 外部工具安装命令（添加EXTERNAL时需改）
+```
+  ---
+  示例：请看tools中的brute_force_attack示例工具
+
+#### 3、关于服务端部署到windows的做法
+尽管windows中没有kali原生工具，但是我们也支持了将项目部署到windows的做法：前面的操作和Kali Linux一样，唯一需要修改的地方为/hunter-server/agent/system/system_command.py文件中，开头有一个参数 "my_platform" 将其改为"windows"即可。（当前服务端只支持windows/linux）
+
+
+#### 4、关于项目用法：
 
 本项目关键还是主要用于简化命令行工具利用过程，省去记忆的复杂性。做渗透测试如果想要完全的凭借大模型是难以达到的，并且也是不现实的。大模型最主要的作用还是辅助。
 
