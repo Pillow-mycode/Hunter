@@ -382,7 +382,7 @@ hunter-server/
 
 ## 许可证
 
-本项目仅供学习和研究使用。
+本项目基于 MIT 许可证开源 - 详情请查看 [LICENSE](LICENSE) 文件。
 
 ---
 
