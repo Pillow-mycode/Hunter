@@ -4,25 +4,27 @@
 
 #                                              Hunter
 
-一款基于 LLM 驱动的可在windows/mac上访问的自动化渗透测试工具，采用多智能体协作架构，可以在Kali环境下充分集成，实现Kali工具的自动化利用。你也可以用它对你自己的网站进行渗透性测试，所以它既可以是你与工具之间的“翻译官”，也可以是你的自动化渗透的“雇佣兵”。
+An LLM-driven automated penetration testing tool accessible from Windows/Mac, featuring a multi-agent collaborative architecture that fully integrates with the Kali environment for automated utilization of Kali tools. You can also use it to perform penetration testing on your own websites. It can serve as a "translator" between you and the tools, or as an automated penetration testing "mercenary."
 
-## 优势
-本项目集成了共101种渗透工具（kali原生支持86种 + 外部优秀工具14种 + 示例自定义工具1种）。配有专门的客户端，无需下载、开箱即用，无需单独配置MCP，而且适应各种平台。还提供了自定义工具的扩展接口，使用自己编订的工具。功能强大、方便、可扩展性强。
+## Advantages
 
-## 为什么需要
+This project integrates 101 penetration tools (86 Kali-native + 14 excellent external tools + 1 example custom tool). It comes with a dedicated client that requires no download, works out-of-the-box, needs no separate MCP configuration, and adapts to various platforms. It also provides extension interfaces for custom tools, allowing you to use your own developed tools. Powerful, convenient, and highly extensible.
 
-Hunter 是一个强大的自动化渗透测试系统。在这里，你不需要记住那些多而杂的工具名或参数，你只需要清楚自己想干什么，将所有经历专注于问题思路和解决方案上。为什么集成在Kali上？因为Kali上有着丰富的”武器库“，只需要加上它，Hunter将不再是一个只会给建议的指挥员，而是真正为你做事的士兵。
+## Why Hunter?
+
+Hunter is a powerful automated penetration testing system. Here, you don't need to remember numerous tool names or parameters - you just need to know what you want to do, focusing all your energy on problem-solving approaches and solutions. Why integrate with Kali? Because Kali has a rich "arsenal." With Hunter, it's no longer just an advisor giving suggestions, but a soldier actually doing the work for you.
+
+---
+
+### Deployment Notes
+
+This project is primarily designed for server deployment on Kali, although Windows is also supported but less convenient for tools. It's best to prepare a Kali host or virtual machine.
+
+**!!! Warning: Do not deploy this project on public servers. If you have special needs requiring public network mapping, please ensure proper inbound/outbound server restrictions.**
 
 ---
 
-### 部署说明
-
-本项目主推将服务端部署到Kali上，虽然也支持Windows，但工具方面没有Kali方便。所以最好准备一台Kali主机或虚拟机。Kali虚拟机安装方式参考：[Kali Linux下载安装及配置（VMware虚拟机）保姆级图文教程（持续更新）kali安装2026最新，0基础可用，保姆级图文（2024年11月19日发布，2026/1/1最新更新）_kali虚拟机-CSDN博客](https://blog.csdn.net/m0_74030222/article/details/143866270?ops_request_misc=elastic_search_misc&request_id=1f3cdc30a9a4f5a0e585ab6f06852f7f&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~top_positive~default-1-143866270-null-null.nonlogin&utm_term=kali)
-
-**！！！注意：尽量不要将本项目部署到公网服务器上， 如果有特殊需求需要映射到公网，请做好服务器出入站限制**
-
----
-## 快速启动(Kali Linux)
+## Quick Start (Kali Linux)
 
 ```bash
 git clone https://github.com/Pillow-mycode/Hunter.git
@@ -31,361 +33,368 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 配置 .env 
+# Configure .env
 cp .env.example .env
 nano .env
 
 python server/app.py
 ```
 
-## 平台支持
+## Platform Support
 
-| 组件 | 支持情况 |
-|------|---------|
-| 服务端 | Kali Linux ✅ / Linux ⚠️ / Windows ⚠️ |
-| 客户端 | Windows ✅ Mac ✅ Linux ✅ |
-| 工具自动化 | Kali 最佳体验 ⭐⭐⭐⭐⭐ |
+| Component | Support Status |
+|-----------|----------------|
+| Server | Kali Linux ✅ / Linux ⚠️ / Windows ⚠️ |
+| Client | Windows ✅ Mac ✅ Linux ✅ |
+| Tool Automation | Best experience on Kali ⭐⭐⭐⭐⭐ |
 
 
-## 配置服务端（Kali Linux上）
+## Server Configuration (On Kali Linux)
 
-### 环境要求
+### Requirements
 
-- Kali Linux（服务端）
+- Kali Linux (Server)
+- Python 3.8+ (Pre-installed on Kali)
+- Common penetration tools installed (Pre-installed on Kali)
 
-- Python 3.8+ （Kali自带）
-- 安装常用渗透工具（Kali 预装）
-
-### 1. 安装依赖
+### 1. Install Dependencies
 
 ```bash
-#进入项目
+# Enter project directory
 cd Hunter/hunter-server
 
-#创建虚拟环境
+# Create virtual environment
 python -m venv venv
 source venv/bin/activate
 
-# 安装 Python 依赖
+# Install Python dependencies
 pip install -r requirements.txt
 ```
 
-### 2. 配置环境变量
+### 2. Configure Environment Variables
 
-在Hunter/hunter-server目录下创建 `.env` 文件并进入，粘贴并配置以下内容（注意：这里有四部分，可以仅配置第一个默认部分其他为空即可，如需要单独为不不同智能体选择不同模型直接填入信息即可，默认优先级：专门配置 > 默认配置）：
+Create a `.env` file in the Hunter/hunter-server directory and configure the following content (Note: There are four sections. You can configure only the first default section and leave others empty. If you need different models for different agents, fill in the information directly. Priority: Specific configuration > Default configuration):
 
 ```env
-# ==================== 默认配置 ====================
-# 当各智能体的专用配置为空时，使用这些默认值
+# ==================== Default Configuration ====================
+# These default values are used when agent-specific configurations are empty
 DEFAULT_API_KEY=your-api-key-here
 DEFAULT_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 DEFAULT_MODEL=qwen3-max
 
-# ==================== 武器大师配置 ====================
-# 负责工具选择和命令执行
+# ==================== Weapon Master Configuration ====================
+# Responsible for tool selection and command execution
 ATTACKER_API_KEY=
 ATTACKER_BASE_URL=
 ATTACKER_MODEL=
 
-# ==================== 鹰眼配置 ====================
-# 负责检测终端是否需要用户交互
+# ==================== Hawkeye Configuration ====================
+# Responsible for detecting if terminal requires user interaction
 HAWKEYE_API_KEY=
 HAWKEYE_BASE_URL=
 HAWKEYE_MODEL=
 
-# ==================== 渗透专家配置 ====================
-# 负责任务规划和决策
+# ==================== Penetration Expert Configuration ====================
+# Responsible for task planning and decision-making
 LEADER_API_KEY=
 LEADER_BASE_URL=
 LEADER_MODEL=
 ```
 
-#### 配置说明
+#### Configuration Notes
 
-- **API Key**：必填，填写你的 LLM 服务商 API Key（如阿里云 DashScope、OpenAI 等）
-- **Base URL**：必填，API 服务地址
-- **Model**：必填，使用的模型名称
+- **API Key**: Required. Enter your LLM provider's API Key (e.g., Alibaba Cloud DashScope, OpenAI, etc.)
+- **Base URL**: Required. API service address
+- **Model**: Required. Model name to use
 
-#### 配置优先级
+#### Configuration Priority
 
-每个智能体的配置都遵循优先级规则：**专用配置 > 默认配置**
+Each agent's configuration follows the priority rule: **Specific configuration > Default configuration**
 
-示例：
-- 如果 `ATTACKER_API_KEY` 有值 → 使用 `ATTACKER_API_KEY`
-- 如果 `ATTACKER_API_KEY` 为空 → 使用 `DEFAULT_API_KEY`
-- 如果两者都为空 → 报错
+Example:
+- If `ATTACKER_API_KEY` has a value → Use `ATTACKER_API_KEY`
+- If `ATTACKER_API_KEY` is empty → Use `DEFAULT_API_KEY`
+- If both are empty → Error
 
-#### 推荐配置方案
+#### Recommended Configuration Options
 
-**方案 1：统一配置（推荐）**
+**Option 1: Unified Configuration (Recommended)**
 ```env
 DEFAULT_API_KEY=sk-xxx
 DEFAULT_BASE_URL=https://api.example.com/v1
 DEFAULT_MODEL=gpt-4
 
-# 其他配置留空，自动使用默认值
+# Leave other configurations empty to automatically use default values
 ATTACKER_API_KEY=
 HAWKEYE_API_KEY=
 LEADER_API_KEY=
 ```
 
-**方案 2：差异化配置**
+**Option 2: Differentiated Configuration**
 ```env
 DEFAULT_API_KEY=sk-xxx
 
-# 武器大师使用更强的模型
+# Weapon Master uses a more powerful model
 ATTACKER_MODEL=qwen3-max-latest
 
-# 鹰眼使用更快的模型（降低成本）
+# Hawkeye uses a faster model (cost reduction)
 HAWKEYE_MODEL=qwen3-turbo
 
-# 渗透专家使用默认模型
+# Penetration Expert uses default model
 LEADER_API_KEY=
 ```
 
-### 3. 启动 FastAPI 服务端
+### 3. Start FastAPI Server
 
 ```bash
 python server/app.py
 ```
 
-服务启动后：
-- API 地址：`http://0.0.0.0:8000`
-- WebSocket 地址：`ws://0.0.0.0:8000/ws/{session_id}`
+After the service starts:
+- API Address: `http://0.0.0.0:8000`
+- WebSocket Address: `ws://0.0.0.0:8000/ws/{session_id}`
 
 
 
-## 访问客户端（Windows/Mac 确保和Kali Linux主机在同一内网下）
+## Accessing the Client (Windows/Mac - Ensure same network as Kali Linux host)
 
-#### 方式1（推荐）：直接访问  [Hunter - 自动化渗透测试系统](http://42.193.116.16/)
+#### Method 1 (Recommended): Direct access to [Hunter - Automated Penetration Testing System](http://42.193.116.16/)
 
-#### 方式2：将本项目的 ”/hunter-clinet“ 目录直接放到本机上，用浏览器直接打开其中的index.html即可
+#### Method 2: Place the "/hunter-client" directory from this project on your local machine and open index.html directly in a browser
 
 
 
-确定客户端主机与kali在同一内网下后需要拿到kali的IP，用来访问服务端：
+After confirming the client host is on the same network as Kali, get the Kali IP to access the server:
 
 ![kali](./hunter-server/photo/kali.png)
 
-再将此地址填入客户端即可：
+Then enter this address in the client:
 
 ![clientphoto](./hunter-server/photo/clientphoto.png)
 
-完成后即可开始测试！！
+You're ready to start testing!
 
 ---
 
 
 
-## 系统架构图
+## System Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                      Windows 客户端                           │
+│                      Windows Client                          │
 │                        (Web UI)                              │
-│                  - 用户交互界面                              │
-│                  - 会话管理                                  │
-│                  - 实时进度展示                              │
+│                  - User Interface                            │
+│                  - Session Management                        │
+│                  - Real-time Progress Display                │
 └──────────────────────────────────────────────────────────────┘
                               │
                     HTTP / WebSocket
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                     Kali 服务端                              │
+│                     Kali Server                              │
 ├──────────────────────────────────────────────────────────────┤
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │                    Web API 层                          │  │
+│  │                    Web API Layer                       │  │
 │  │              (FastAPI + WebSocket)                     │  │
-│  │         接收请求 / 进度推送 / 用户交互                   │  │
-│  │  - POST /session: 创建会话                            │  │
-│  │  - GET  /session/{id}: 获取会话状态                    │  │
-│  │  - WS   /ws/{session_id}: WebSocket 连接               │  │
+│  │         Request Handling / Progress Push / User Input  │  │
+│  │  - POST /session: Create session                       │  │
+│  │  - GET  /session/{id}: Get session status              │  │
+│  │  - WS   /ws/{session_id}: WebSocket connection         │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                              │                               │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │                   任务管理器                            │  │
-│  │        会话管理 / 并发控制 / 状态持久化                  │  │
-│  │  - SessionManager: 管理会话生命周期                   │  │
-│  │  - 并发任务调度                                      │  │
-│  │  - WebSocket 消息分发                                │  │
+│  │                   Task Manager                         │  │
+│  │        Session Management / Concurrency Control /      │  │
+│  │                 State Persistence                      │  │
+│  │  - SessionManager: Manage session lifecycle            │  │
+│  │  - Concurrent task scheduling                          │  │
+│  │  - WebSocket message distribution                      │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                              │                               │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │               渗透专家 (AttackLeader)                   │  │
-│  │                    + LLM 决策                           │  │
-│  │  - 任务规划：制定渗透测试策略                         │  │
-│  │  - 风险评估：评估操作风险等级                         │  │
-│  │  - 用户沟通：用自然语言与用户交流                     │  │
+│  │               Penetration Expert (AttackLeader)        │  │
+│  │                    + LLM Decision                      │  │
+│  │  - Task Planning: Develop penetration testing strategy │  │
+│  │  - Risk Assessment: Evaluate operation risk levels     │  │
+│  │  - User Communication: Natural language interaction    │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                              │                               │
-│                         函数调用                             │
+│                         Function Calls                       │
 │                              │                               │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │              武器大师 (AttackToolMaster)                │  │
-│  │  - 工具选择：根据任务选择合适的工具                   │  │
-│  │  - 命令生成：生成执行命令                           │  │
-│  │  - 结果分析：解析工具输出并提取关键信息               │  │
+│  │              Weapon Master (AttackToolMaster)          │  │
+│  │  - Tool Selection: Choose appropriate tools for tasks  │  │
+│  │  - Command Generation: Generate execution commands     │  │
+│  │  - Result Analysis: Parse tool output, extract info    │  │
 │  │                                                        │  │
-│  │              鹰眼 (Hawkeye) - 交互检测                   │  │
-│  │  - 智能判断：检测终端是否需要用户输入                │  │
-│  │  - 避免阻塞：及时通知用户输入需求                     │  │
+│  │              Hawkeye - Interaction Detection           │  │
+│  │  - Smart Detection: Check if terminal needs user input │  │
+│  │  - Avoid Blocking: Timely notify user of input needs   │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                              │                               │
-│                    工具调用 (Kali 内置 + 自定义)            │
+│                    Tool Invocation (Kali Built-in + Custom)  │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │  [KALI] nmap, sqlmap, hydra, nikto, gobuster...   │  │
-│  │  [CUSTOM] brute_force_attack.py                      │  │
+│  │  [KALI] nmap, sqlmap, hydra, nikto, gobuster...        │  │
+│  │  [CUSTOM] brute_force_attack.py                        │  │
 │  └────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 客户端和服务端部署
+## Client and Server Deployment
 
-### 目录结构
+### Directory Structure
 
 ```
 hunter-server/
-├── server/              # 服务端（部署在 Kali Linux）
-│   ├── app.py          # FastAPI 服务主程序
-│   ├── requirements.txt # 服务端依赖
+├── server/              # Server (Deploy on Kali Linux)
+│   ├── app.py          # FastAPI main program
+│   ├── requirements.txt # Server dependencies
 │   └── __init__.py
 │
-├── agent/              # 智能体核心模块
-│   ├── smart_brain/    # 智能体实现
-│   │   ├── attack_leader.py      # 渗透专家
-│   │   ├── attack_tool_master.py # 武器大师
-│   │   └── hawkeye.py          # 鹰眼
-│   ├── pojo/          # 配置类
-│   │   ├── leader_config.py     # 渗透专家配置
-│   │   ├── attack_config.py      # 武器大师配置
-│   │   └── hawkeye_config.py    # 鹰眼配置
-│   ├── system/        # 系统模块
-│   │   ├── system_command.py     # 命令执行（PTY）
-│   │   └── output_handler.py     # 输出处理
-│   └── manager/       # 管理器
-│       ├── session_manager.py     # 会话管理
-│       └── history_manager.py    # 历史记录
+├── agent/              # Agent core modules
+│   ├── smart_brain/    # Agent implementations
+│   │   ├── attack_leader.py      # Penetration Expert
+│   │   ├── attack_tool_master.py # Weapon Master
+│   │   └── hawkeye.py            # Hawkeye
+│   ├── pojo/          # Configuration classes
+│   │   ├── leader_config.py      # Penetration Expert config
+│   │   ├── attack_config.py      # Weapon Master config
+│   │   └── hawkeye_config.py     # Hawkeye config
+│   ├── system/        # System modules
+│   │   ├── system_command.py     # Command execution (PTY)
+│   │   └── output_handler.py     # Output handling
+│   └── manager/       # Managers
+│       ├── session_manager.py    # Session management
+│       └── history_manager.py    # History records
 │
-├── starter/            # 启动入口
-│   └── main.py        # CLI 启动入口
+├── starter/            # Startup entry
+│   └── main.py        # CLI startup entry
 │
-├── tools/             # 工具库
-│   ├── brute_force_attack/  # 暴力破解工具
-│   └── tools_readme/       # 工具文档
+├── tools/             # Tool library
+│   ├── brute_force_attack/  # Brute force tool
+│   └── tools_readme/        # Tool documentation
 │
-├── logs/              # 日志目录
-├── reports/           # 测试报告
-├── results/           # 测试结果
-├── requirements.txt   # 完整依赖
-└── .env              # 环境变量配置（不提交到 Git）
+├── logs/              # Log directory
+├── reports/           # Test reports
+├── results/           # Test results
+├── requirements.txt   # Complete dependencies
+└── .env              # Environment variables (not committed to Git)
 ```
 
 
 
-## 额外功能
+## Additional Features
 
-#### 1、本项目还支持自定义渗透工具（要求命令行运行）做法：
+#### 1. Custom Penetration Tools Support (Command-line executable required):
 
-将开发的工具包放入上面的目录的tools目录下，然后将工具的名称与简介按 "tool_name:description;" 填入 tools_readme 目录下的 all-tools.txt 中，最后写一个详细的 tool_name.md 文档放入 tools_readme 目录下即可。可以看项目中 brute_force_attack 的例子。
+Place your developed tool package in the tools directory mentioned above, then add the tool name and description in the format "tool_name:description;" to all-tools.txt in the tools_readme directory. Finally, write a detailed tool_name.md document and place it in the tools_readme directory. See the brute_force_attack example in the project.
 
-#### 2、工具扩展指南
-                                                            
-  工具分类说明         
+#### 2. Tool Extension Guide
+
+  Tool Classification
   ```
   ┌──────────────┬────────────┬─────────────────────────────────────────┐
-  │     类型     │    标签     │                  说明                   │                                                                                  
-  ├──────────────┼────────────┼─────────────────────────────────────────┤      
-  │ Kali原生工具  │ [KALI]     │ Kali Linux 预装工具，武器大师可直接调用    │
+  │     Type     │    Tag     │              Description                │
   ├──────────────┼────────────┼─────────────────────────────────────────┤
-  │ 自定义工具    │ [CUSTOM]   │ 项目自研工具，需编写使用文档               │
+  │ Kali Native  │ [KALI]     │ Kali Linux pre-installed tools,         │
+  │              │            │ Weapon Master can call directly         │
   ├──────────────┼────────────┼─────────────────────────────────────────┤
-  │ 外部工具      │ [EXTERNAL] │ 优秀的第三方工具，需额外安装               │
+  │ Custom Tools │ [CUSTOM]   │ Project-developed tools,                │
+  │              │            │ requires usage documentation            │
+  ├──────────────┼────────────┼─────────────────────────────────────────┤
+  │ External     │ [EXTERNAL] │ Excellent third-party tools,            │
+  │ Tools        │            │ requires additional installation        │
   └──────────────┴────────────┴─────────────────────────────────────────┘
   ```
   ---
-  **添加自定义工具 [CUSTOM]**
+  **Adding Custom Tools [CUSTOM]**
 
-  适用于：你自己编写的 Python/Bash 脚本工具
+  Applicable to: Python/Bash scripts you've written yourself
 
-  步骤：
+  Steps:
 
-  1. 创建工具目录和脚本
+  1. Create tool directory and script
   ```
   tools/
   └── your_tool_name/
-      ├── your_tool_name.py    # 你的工具脚本
-      └── wordlist.txt         # 可选：配套资源文件
+      ├── your_tool_name.py    # Your tool script
+      └── wordlist.txt         # Optional: supporting resource files
   ```
-  2. 编写工具文档（必须）：tools/tools_readme/your_tool_name.txt（文档应包含：功能说明、参数说明、使用示例）
-  3. 注册到工具列表：在 tools/tools_readme/all-tools.txt 中添加：[CUSTOM]your_tool_name.py:工具功能描述，详见 tools_readme/your_tool_name.txt;
+  2. Write tool documentation (Required): tools/tools_readme/your_tool_name.txt (Documentation should include: function description, parameter description, usage examples)
+  3. Register in tool list: Add to tools/tools_readme/all-tools.txt: [CUSTOM]your_tool_name.py:Tool function description, see tools_readme/your_tool_name.txt;
 
-  **注意**： 武器大师使用自定义工具前会强制阅读文档，所以文档质量直接影响工具的使用效果。
+  **Note**: Weapon Master will forcibly read documentation before using custom tools, so documentation quality directly affects tool usage effectiveness.
 
   ---
-  **添加外部工具 [EXTERNAL]**
+  **Adding External Tools [EXTERNAL]**
 
-  适用于：优秀但 Kali 默认不自带的第三方工具
+  Applicable to: Excellent tools not included by default in Kali
 
-  步骤：
+  Steps:
 
-  1. 注册到工具列表：在 tools/tools_readme/all-tools.txt 中添加：[EXTERNAL]tool_name:工具功能描述;
-  2. 添加安装命令：在 agent/smart_brain/attack_tool_master.py 的 _get_install_command() 方法中添加：
+  1. Register in tool list: Add to tools/tools_readme/all-tools.txt: [EXTERNAL]tool_name:Tool function description;
+  2. Add installation command: In agent/smart_brain/attack_tool_master.py's _get_install_command() method, add:
   ```
   install_commands = {
-       **... 已有工具 ...**
+       **... existing tools ...**
       "tool_name": "sudo apt install -y tool_name || pip install tool_name",
   }
   ```
 
-  工作流程： 武器大师使用外部工具时会自动检查是否已安装，未安装则自动执行安装命令。
+  Workflow: Weapon Master automatically checks if external tools are installed before use; if not, it automatically executes the installation command.
 
   ---
-  文件结构速查
+  File Structure Quick Reference
 ```
   hunter-server/
   ├── tools/
-  │   ├── your_custom_tool/        # 自定义工具目录
+  │   ├── your_custom_tool/        # Custom tool directory
   │   │   └── your_custom_tool.py
   │   └── tools_readme/
-  │       ├── all-tools.txt        # 工具注册表（必改）
-  │       └── your_custom_tool.txt # 自定义工具文档（必写）
+  │       ├── all-tools.txt        # Tool registry (must modify)
+  │       └── your_custom_tool.txt # Custom tool docs (must write)
   │
   └── agent/smart_brain/
-      └── attack_tool_master.py    # 外部工具安装命令（添加EXTERNAL时需改）
+      └── attack_tool_master.py    # External tool install commands
+                                   # (modify when adding EXTERNAL)
 ```
   ---
-  示例：请看tools中的brute_force_attack示例工具
+  Example: See the brute_force_attack example tool in tools
 
-#### 3、关于服务端部署到windows的做法
-尽管windows中没有kali原生工具，但是我们也支持了将项目部署到windows的做法：前面的操作和Kali Linux一样，唯一需要修改的地方为/hunter-server/agent/system/system_command.py文件中，开头有一个参数 "my_platform" 将其改为"windows"即可。（当前服务端只支持windows/linux）
+#### 3. Deploying Server on Windows
+
+Although Windows doesn't have Kali-native tools, we also support deploying the project on Windows: The previous operations are the same as Kali Linux. The only modification needed is in /hunter-server/agent/system/system_command.py - change the "my_platform" parameter at the beginning to "windows". (Currently the server only supports windows/linux)
 
 
-#### 4、关于项目用法：
+#### 4. About Project Usage:
 
-本项目关键还是主要用于简化命令行工具利用过程，省去记忆的复杂性。做渗透测试如果想要完全的凭借大模型是难以达到的，并且也是不现实的。大模型最主要的作用还是辅助。
-
----
-
-## 安全提示
-
-⚠️ **本工具仅用于授权的安全测试，请勿用于非法目的**
-* 作者不承担责任
-* 用户自行负责
-* 仅用于授权测试
-* 禁止非法用途
-
-禁止非法用途
----
-
-## 许可证
-
-本项目基于 MIT 许可证开源 - 详情请查看 [LICENSE](LICENSE) 文件。
+This project is primarily designed to simplify the command-line tool utilization process, eliminating the complexity of memorization. Relying entirely on LLMs for penetration testing is difficult and unrealistic. The main role of LLMs is still assistance.
 
 ---
 
-## 联系方式
+## Security Notice
 
-如有问题或建议，欢迎提交 Issue。
+⚠️ **This tool is for authorized security testing only. Do not use for illegal purposes.**
+* The author assumes no responsibility
+* Users are solely responsible
+* For authorized testing only
+* Illegal use is prohibited
+
+Illegal use is prohibited
+
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Contact
+
+For questions or suggestions, please submit an Issue.
+
