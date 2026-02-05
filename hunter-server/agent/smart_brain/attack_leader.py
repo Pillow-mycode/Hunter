@@ -14,16 +14,194 @@ from agent.system.system_command import write_to_logs
 负责规划和协调整个渗透测试流程
 """
 
+# 本地化消息
+MESSAGES = {
+    "zh": {
+        "msg_truncating": "[LLM] 消息过长，正在截断...",
+        "msg_calling_model": "[LLM] 正在调用模型 {model}... (尝试 {attempt}/{max_retries})",
+        "msg_model_complete": "[LLM] 模型响应完成",
+        "msg_api_retry": "[LLM] API 调用失败，{wait_time}秒后重试...",
+        "msg_api_failed": "[LLM] API 调用失败: {error}",
+        "msg_reply": "[回复] {message}",
+        "msg_received_request": "[渗透专家] 收到请求: {request}",
+        "msg_parsing_target": "[渗透专家] 正在解析目标...",
+        "msg_target": "[渗透专家] 目标: {target}",
+        "msg_target_unspecified": "未指定",
+        "msg_start_decision": "[渗透专家] 开始动态决策流程...",
+        "msg_decision": "[渗透专家] 决策: {reason}",
+        "msg_instruction": "[渗透专家] 指令: {instruction}",
+        "msg_task_complete": "[渗透专家] 任务完成: {reason}",
+        "msg_task_done": "[渗透专家] 任务完成",
+        "msg_pentest_complete": "[渗透专家] 渗透测试完成",
+        "msg_max_steps": "[渗透专家] 达到最大步数限制",
+        "msg_too_many_failures": "[渗透专家] 连续失败次数过多",
+        "msg_no_progress": "[渗透专家] 连续多步无新发现",
+        "msg_weapon_received": "[武器大师] 收到指令: {instruction}",
+        "msg_weapon_skipped": "[武器大师] 任务被跳过: {reason}",
+        "msg_weapon_aborted": "[武器大师] 任务被中止: {reason}",
+        "msg_weapon_complete": "[武器大师] 任务完成: {status}",
+        "msg_weapon_result": "[武器大师] 结果: {summary}",
+        "msg_weapon_executing": "[武器大师] 执行任务 {task_id}: {action} -> {target}",
+        "msg_weapon_task_skipped": "[武器大师] 任务 {task_id} 被跳过: {reason}",
+        "msg_weapon_task_aborted": "[武器大师] 任务 {task_id} 被中止: {reason}",
+        "msg_weapon_task_complete": "[武器大师] 任务 {task_id} 完成: {status}",
+        "msg_weapon_task_result": "[武器大师] 结果: {summary}",
+        "msg_need_confirm": "需要确认",
+        "msg_user_skipped": "用户跳过",
+        "msg_user_skipped_input": "用户跳过输入",
+        "msg_scan_complete_findings": "扫描完成，发现以上信息。",
+        "msg_scan_complete_no_findings": "扫描完成，未发现明显问题。",
+        "msg_fix_vulnerabilities": "建议修复发现的漏洞",
+        "msg_close_ports": "建议关闭不必要的开放端口",
+        "msg_no_findings": "暂无发现",
+        "msg_first_conversation": "（这是第一次对话）",
+        "msg_user_label": "用户",
+        "msg_me_label": "我",
+        "msg_no_tools": "无可用工具",
+        "msg_custom_tools_header": "### 自定义工具（需要先阅读文档）",
+        "msg_kali_tools_header": "### Kali 自带工具（可直接使用）",
+        "msg_scan_done": "已执行扫描",
+        "msg_none": "无",
+        "msg_step": "步骤{step}",
+        "msg_result": "结果",
+        "msg_decision_error": "决策异常，终止执行",
+        "msg_need_info": "武器大师需要信息",
+        "msg_input_skip": "请输入 (输入 'skip' 跳过此任务)",
+        "msg_continue_confirm": "是否继续? (y/n)",
+        "msg_task_label": "任务",
+        # 决策提示词
+        "decision_user_request": "用户原始请求",
+        "decision_conversation_history": "对话历史",
+        "decision_current_status": "当前状态",
+        "decision_target": "目标",
+        "decision_steps_executed": "已执行步骤",
+        "decision_current_findings": "当前发现",
+        "decision_executed_operations": "已执行的操作",
+        "decision_last_result": "上一步详细结果",
+        "decision_available_tools": "可用工具",
+        "decision_think_like_human": "请像人一样思考",
+        "decision_q1": "用户想要什么？",
+        "decision_q2": "我已经做了什么？得到了什么结果？",
+        "decision_q3": "用户的需求满足了吗？",
+        "decision_important_principles": "重要原则",
+        "decision_no_repeat": "不要重复执行已经做过的操作（查看'已执行的操作'）",
+        "decision_no_same_retry": "如果某个操作失败了，不要用相同的方法重试，要换一种方法或放弃",
+        "decision_stop_if_stuck": "如果已经尽力尝试但无法获取更多信息，就停止并汇报当前结果",
+        "decision_return_json": "返回 JSON",
+        "decision_complete_desc": "需求已满足，或无法继续",
+        "decision_complete_reason": "对用户说的话（汇报结果）",
+        "decision_continue_desc": "需求未满足，继续执行新操作",
+        "decision_instruction_desc": "告诉武器大师要做什么（必须是之前没做过的操作）",
+        "decision_reason_desc": "为什么要这么做",
+        # 初始化上下文提示词
+        "init_parse_request": "请解析以下用户请求，提取目标和范围信息。",
+        "init_user_request": "用户请求",
+        "init_return_json": "返回 JSON 格式",
+        "init_target_desc": "主要目标（域名或 IP，若无则空字符串）",
+        "init_scope_desc": "目标范围列表",
+        "init_request_type_desc": "请求类型（full_pentest/vulnerability_scan/specific_test）",
+        "init_specific_requirements_desc": "特殊要求列表",
+    },
+    "en": {
+        "msg_truncating": "[LLM] Message too long, truncating...",
+        "msg_calling_model": "[LLM] Calling model {model}... (attempt {attempt}/{max_retries})",
+        "msg_model_complete": "[LLM] Model response complete",
+        "msg_api_retry": "[LLM] API call failed, retrying in {wait_time} seconds...",
+        "msg_api_failed": "[LLM] API call failed: {error}",
+        "msg_reply": "[Reply] {message}",
+        "msg_received_request": "[Penetration Expert] Received request: {request}",
+        "msg_parsing_target": "[Penetration Expert] Parsing target...",
+        "msg_target": "[Penetration Expert] Target: {target}",
+        "msg_target_unspecified": "Not specified",
+        "msg_start_decision": "[Penetration Expert] Starting dynamic decision process...",
+        "msg_decision": "[Penetration Expert] Decision: {reason}",
+        "msg_instruction": "[Penetration Expert] Instruction: {instruction}",
+        "msg_task_complete": "[Penetration Expert] Task complete: {reason}",
+        "msg_task_done": "[Penetration Expert] Task complete",
+        "msg_pentest_complete": "[Penetration Expert] Penetration test complete",
+        "msg_max_steps": "[Penetration Expert] Maximum step limit reached",
+        "msg_too_many_failures": "[Penetration Expert] Too many consecutive failures",
+        "msg_no_progress": "[Penetration Expert] No progress for multiple steps",
+        "msg_weapon_received": "[Weapon Master] Received instruction: {instruction}",
+        "msg_weapon_skipped": "[Weapon Master] Task skipped: {reason}",
+        "msg_weapon_aborted": "[Weapon Master] Task aborted: {reason}",
+        "msg_weapon_complete": "[Weapon Master] Task complete: {status}",
+        "msg_weapon_result": "[Weapon Master] Result: {summary}",
+        "msg_weapon_executing": "[Weapon Master] Executing task {task_id}: {action} -> {target}",
+        "msg_weapon_task_skipped": "[Weapon Master] Task {task_id} skipped: {reason}",
+        "msg_weapon_task_aborted": "[Weapon Master] Task {task_id} aborted: {reason}",
+        "msg_weapon_task_complete": "[Weapon Master] Task {task_id} complete: {status}",
+        "msg_weapon_task_result": "[Weapon Master] Result: {summary}",
+        "msg_need_confirm": "Confirmation needed",
+        "msg_user_skipped": "User skipped",
+        "msg_user_skipped_input": "User skipped input",
+        "msg_scan_complete_findings": "Scan complete, findings above.",
+        "msg_scan_complete_no_findings": "Scan complete, no obvious issues found.",
+        "msg_fix_vulnerabilities": "Recommend fixing discovered vulnerabilities",
+        "msg_close_ports": "Recommend closing unnecessary open ports",
+        "msg_no_findings": "No findings yet",
+        "msg_first_conversation": "(This is the first conversation)",
+        "msg_user_label": "User",
+        "msg_me_label": "Me",
+        "msg_no_tools": "No tools available",
+        "msg_custom_tools_header": "### Custom Tools (read documentation first)",
+        "msg_kali_tools_header": "### Kali Built-in Tools (can use directly)",
+        "msg_scan_done": "Scan executed",
+        "msg_none": "None",
+        "msg_step": "Step {step}",
+        "msg_result": "Result",
+        "msg_decision_error": "Decision error, terminating execution",
+        "msg_need_info": "Weapon Master needs information",
+        "msg_input_skip": "Please enter (enter 'skip' to skip this task)",
+        "msg_continue_confirm": "Continue? (y/n)",
+        "msg_task_label": "Task",
+        # Decision prompts
+        "decision_user_request": "User Original Request",
+        "decision_conversation_history": "Conversation History",
+        "decision_current_status": "Current Status",
+        "decision_target": "Target",
+        "decision_steps_executed": "Steps Executed",
+        "decision_current_findings": "Current Findings",
+        "decision_executed_operations": "Executed Operations",
+        "decision_last_result": "Last Step Detailed Result",
+        "decision_available_tools": "Available Tools",
+        "decision_think_like_human": "Think like a human",
+        "decision_q1": "What does the user want?",
+        "decision_q2": "What have I done? What results did I get?",
+        "decision_q3": "Is the user's need satisfied?",
+        "decision_important_principles": "Important Principles",
+        "decision_no_repeat": "Don't repeat operations already done (check 'Executed Operations')",
+        "decision_no_same_retry": "If an operation failed, don't retry with the same method, try a different approach or give up",
+        "decision_stop_if_stuck": "If you've tried your best but can't get more information, stop and report current results",
+        "decision_return_json": "Return JSON",
+        "decision_complete_desc": "Need satisfied, or cannot continue",
+        "decision_complete_reason": "What to say to user (report results)",
+        "decision_continue_desc": "Need not satisfied, continue with new operation",
+        "decision_instruction_desc": "Tell Weapon Master what to do (must be an operation not done before)",
+        "decision_reason_desc": "Why do this",
+        # Init context prompts
+        "init_parse_request": "Please parse the following user request and extract target and scope information.",
+        "init_user_request": "User Request",
+        "init_return_json": "Return JSON format",
+        "init_target_desc": "Main target (domain or IP, empty string if none)",
+        "init_scope_desc": "Target scope list",
+        "init_request_type_desc": "Request type (full_pentest/vulnerability_scan/specific_test)",
+        "init_specific_requirements_desc": "Special requirements list",
+    }
+}
+
 
 class AttackLeader:
     def __init__(self, config: AttackLeaderConfig):
         self.client = config.leader_client
         self.model = config.model
         self.system_prompt = config.system_prompt
+        self.language = getattr(config, 'language', 'zh')  # 获取语言配置
         self.messages = []
         self.messages_lock = threading.Lock()
 
-        weapon_config = AttackToolMasterConfig()
+        # 传递语言配置给武器大师
+        weapon_config = AttackToolMasterConfig(language=self.language)
         self.weapon_master = AttackToolMaster(weapon_config)
 
         self.context = {
@@ -53,6 +231,12 @@ class AttackLeader:
         self.on_need_confirm: Optional[Callable] = None
         self.on_need_input: Optional[Callable] = None
 
+    def _msg(self, key: str, **kwargs) -> str:
+        """获取本地化消息"""
+        lang = self.language if self.language in MESSAGES else "zh"
+        template = MESSAGES[lang].get(key, MESSAGES["zh"].get(key, key))
+        return template.format(**kwargs) if kwargs else template
+
     @property
     def on_progress(self) -> Optional[Callable]:
         return self._on_progress
@@ -70,7 +254,7 @@ class AttackLeader:
         current_length = sum(len(str(msg.get("content", ""))) for msg in messages)
 
         if current_length > max_total_length:
-            self._notify_progress("[LLM] 消息过长，正在截断...")
+            self._notify_progress(self._msg("msg_truncating"))
             system_messages = [msg for msg in messages if msg["role"] == "system"]
             other_messages = [msg for msg in messages if msg["role"] != "system"]
             truncated_messages = []
@@ -87,14 +271,14 @@ class AttackLeader:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                self._notify_progress(f"[LLM] 正在调用模型 {self.model}... (尝试 {attempt + 1}/{max_retries})")
+                self._notify_progress(self._msg("msg_calling_model", model=self.model, attempt=attempt + 1, max_retries=max_retries))
                 completion = self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
                     response_format={"type": "json_object"},
                     timeout=180  # 3分钟超时
                 )
-                self._notify_progress("[LLM] 模型响应完成")
+                self._notify_progress(self._msg("msg_model_complete"))
                 return completion.choices[0].message.content
             except Exception as e:
                 error_msg = str(e)
@@ -104,11 +288,11 @@ class AttackLeader:
                     # 还有重试机会
                     import time
                     wait_time = (attempt + 1) * 2  # 递增等待时间：2秒、4秒、6秒
-                    self._notify_progress(f"[LLM] API 调用失败，{wait_time}秒后重试...")
+                    self._notify_progress(self._msg("msg_api_retry", wait_time=wait_time))
                     time.sleep(wait_time)
                 else:
                     # 最后一次尝试也失败了
-                    self._notify_progress(f"[LLM] API 调用失败: {error_msg}")
+                    self._notify_progress(self._msg("msg_api_failed", error=error_msg))
                     raise Exception(f"LLM API 调用失败（已重试{max_retries}次）: {error_msg}")
 
     def _notify_progress(self, message: str):
@@ -150,13 +334,13 @@ class AttackLeader:
         """发送对话消息（显示给用户的回复）"""
         if self.on_progress:
             # 用特殊前缀标记这是对话消息
-            self.on_progress(f"[回复] {message}")
-        print(f"[回复] {message}")
+            self.on_progress(self._msg("msg_reply", message=message))
+        print(self._msg("msg_reply", message=message))
 
     def run(self, user_request: str) -> dict:
         """执行渗透测试，返回报告字典"""
         write_to_logs(f"渗透专家: 收到用户请求 - {user_request}")
-        self._notify_progress(f"[渗透专家] 收到请求: {user_request}")
+        self._notify_progress(self._msg("msg_received_request", request=user_request))
 
         # 保存用户消息到对话历史
         self.context["conversation_history"].append({
@@ -169,11 +353,11 @@ class AttackLeader:
         self._reset_operation_state()
 
         # 初始化上下文
-        self._notify_progress("[渗透专家] 正在解析目标...")
+        self._notify_progress(self._msg("msg_parsing_target"))
         self.init_context(user_request)
 
         target = self.context.get("target") or ""
-        self._notify_progress(f"[渗透专家] 目标: {target or '未指定'}")
+        self._notify_progress(self._msg("msg_target", target=target or self._msg("msg_target_unspecified")))
 
         # 授权检查
         auth_result = self.rules.check_target_authorization(target)
@@ -185,7 +369,7 @@ class AttackLeader:
             }
 
         # 动态决策循环
-        self._notify_progress("[渗透专家] 开始动态决策流程...")
+        self._notify_progress(self._msg("msg_start_decision"))
         while not self.is_mission_complete():
             # 决定下一步行动
             decision = self.decide_next_action()
@@ -193,8 +377,8 @@ class AttackLeader:
             if decision["type"] == "execute_task":
                 # 执行任务 - 使用自然语言指令
                 instruction = decision.get("instruction", "")
-                self._notify_progress(f"[渗透专家] 决策: {decision.get('reason', '')}")
-                self._notify_progress(f"[渗透专家] 指令: {instruction}")
+                self._notify_progress(self._msg("msg_decision", reason=decision.get('reason', '')))
+                self._notify_progress(self._msg("msg_instruction", instruction=instruction))
                 result = self.execute_task_with_instruction(instruction)
 
                 # 更新上下文（传入指令用于历史记录）
@@ -202,7 +386,7 @@ class AttackLeader:
 
             elif decision["type"] == "complete":
                 reason = decision.get('reason', '')
-                self._notify_progress(f"[渗透专家] 任务完成: {reason}")
+                self._notify_progress(self._msg("msg_task_complete", reason=reason))
                 # 保存决策原因，用于生成简洁的报告
                 self.context["last_decision_reason"] = reason
 
@@ -214,7 +398,7 @@ class AttackLeader:
                 break
 
             elif decision["type"] == "need_user_decision":
-                confirmed = self.wait_for_confirm(None, decision.get("message", "需要确认"))
+                confirmed = self.wait_for_confirm(None, decision.get("message", self._msg("msg_need_confirm")))
                 if not confirmed:
                     break
 
@@ -227,7 +411,7 @@ class AttackLeader:
             last_decision_reason = self.context.get("last_decision_reason", "")
             if last_decision_reason:
                 # LLM直接给出了答案（如MD5破解）
-                self._notify_progress("[渗透专家] 任务完成")
+                self._notify_progress(self._msg("msg_task_done"))
                 return {
                     "status": "completed",
                     "report": {
@@ -239,7 +423,7 @@ class AttackLeader:
                 }
 
         # 正常的渗透测试报告
-        self._notify_progress("[渗透专家] 渗透测试完成")
+        self._notify_progress(self._msg("msg_pentest_complete"))
         summary = self._generate_summary()
         conclusion = self._generate_conclusion()
         recommendations = self._generate_recommendations()
@@ -268,11 +452,11 @@ class AttackLeader:
 
         # 如果执行了操作且有发现
         if action_count > 0 and has_findings:
-            return "扫描完成，发现以上信息。"
+            return self._msg("msg_scan_complete_findings")
 
         # 如果执行了操作但没有发现
         if action_count > 0:
-            return "扫描完成，未发现明显问题。"
+            return self._msg("msg_scan_complete_no_findings")
 
         # 如果没有执行操作
         return ""
@@ -287,9 +471,9 @@ class AttackLeader:
 
         rec = []
         if self.context["findings"].get("vulnerabilities"):
-            rec.append("建议修复发现的漏洞")
+            rec.append(self._msg("msg_fix_vulnerabilities"))
         if self.context["findings"].get("ports"):
-            rec.append("建议关闭不必要的开放端口")
+            rec.append(self._msg("msg_close_ports"))
 
         return rec
 
@@ -300,16 +484,16 @@ class AttackLeader:
         self.messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": f"""
-请解析以下用户请求，提取目标和范围信息。
+{self._msg("init_parse_request")}
 
-用户请求: {user_request}
+{self._msg("init_user_request")}: {user_request}
 
-返回 JSON 格式:
+{self._msg("init_return_json")}:
 {{
-    "target": "主要目标（域名或 IP，若无则空字符串）",
-    "scope": ["目标范围列表"],
-    "request_type": "请求类型（full_pentest/vulnerability_scan/specific_test）",
-    "specific_requirements": ["特殊要求列表"]
+    "target": "{self._msg("init_target_desc")}",
+    "scope": ["{self._msg("init_scope_desc")}"],
+    "request_type": "{self._msg("init_request_type_desc")}",
+    "specific_requirements": ["{self._msg("init_specific_requirements_desc")}"]
 }}
 """}
         ]
@@ -336,13 +520,13 @@ class AttackLeader:
                 parts.append(f"{key}: {len(val)} 项")
             elif isinstance(val, dict) and val:
                 parts.append(f"{key}: {len(val)} 项")
-        return "; ".join(parts) if parts else "暂无发现"
+        return "; ".join(parts) if parts else self._msg("msg_no_findings")
 
     def _get_available_tools_summary(self) -> str:
         """获取可用工具摘要（包含详细描述）"""
         tools = self.weapon_master.tools
         if not tools:
-            return "无可用工具"
+            return self._msg("msg_no_tools")
 
         # 按类型分组
         kali_tools = []
@@ -364,12 +548,12 @@ class AttackLeader:
         result = []
 
         if custom_tools:
-            result.append("### 自定义工具（需要先阅读文档）")
+            result.append(self._msg("msg_custom_tools_header"))
             result.extend(custom_tools)
             result.append("")
 
         if kali_tools:
-            result.append("### Kali 自带工具（可直接使用）")
+            result.append(self._msg("msg_kali_tools_header"))
             result.extend(kali_tools)
 
         return "\n".join(result)
@@ -381,9 +565,9 @@ class AttackLeader:
 
         # CLI 模式
         print(f"\n{'='*50}")
-        print(f"武器大师需要信息: {prompt}")
+        print(f"{self._msg('msg_need_info')}: {prompt}")
         print(f"{'='*50}")
-        response = input("请输入 (输入 'skip' 跳过此任务): ").strip()
+        response = input(self._msg("msg_input_skip") + ": ").strip()
         if response.lower() == 'skip':
             return None
         return response
@@ -392,7 +576,7 @@ class AttackLeader:
         """格式化最近N步的历史记录"""
         history = self.context.get("history", [])
         if not history:
-            return "无"
+            return self._msg("msg_none")
 
         recent = history[-n:]
         lines = []
@@ -400,7 +584,7 @@ class AttackLeader:
             instruction = h.get('instruction', '未知操作')
             status = h.get('status', 'unknown')
             summary = h.get('summary', '')[:100]
-            lines.append(f"步骤{h['step']}: [{status}] {instruction}\n  结果: {summary}")
+            lines.append(f"{self._msg('msg_step', step=h['step'])}: [{status}] {instruction}\n  {self._msg('msg_result')}: {summary}")
 
         return "\n".join(lines)
 
@@ -408,7 +592,7 @@ class AttackLeader:
         """格式化对话历史"""
         conversation_history = self.context.get("conversation_history", [])
         if not conversation_history:
-            return "（这是第一次对话）"
+            return self._msg("msg_first_conversation")
 
         lines = []
         for msg in conversation_history:
@@ -416,12 +600,12 @@ class AttackLeader:
             content = msg.get("content", "")
 
             if role == "user":
-                lines.append(f"用户: {content}")
+                lines.append(f"{self._msg('msg_user_label')}: {content}")
             elif role == "assistant":
                 # 截断过长的回复
                 if len(content) > 200:
                     content = content[:200] + "..."
-                lines.append(f"我: {content}")
+                lines.append(f"{self._msg('msg_me_label')}: {content}")
 
         return "\n".join(lines)
 
@@ -444,11 +628,11 @@ class AttackLeader:
                 elif summary:
                     result_text = summary[:200]
                 else:
-                    result_text = "执行成功"
+                    result_text = self._msg("msg_scan_done")
 
                 summaries.append(result_text)
 
-        return "\n".join(summaries) if summaries else "已执行扫描"
+        return "\n".join(summaries) if summaries else self._msg("msg_scan_done")
 
     def is_mission_complete(self) -> bool:
         """
@@ -459,17 +643,17 @@ class AttackLeader:
         """
         # 检查是否达到最大步数
         if self.context.get("action_count", 0) >= 50:
-            self._notify_progress("[渗透专家] 达到最大步数限制")
+            self._notify_progress(self._msg("msg_max_steps"))
             return True
 
         # 检查连续失败次数
         if self.context.get("consecutive_failures", 0) >= 5:
-            self._notify_progress("[渗透专家] 连续失败次数过多")
+            self._notify_progress(self._msg("msg_too_many_failures"))
             return True
 
         # 检查无进展次数
         if self.context.get("no_progress_count", 0) >= 5:
-            self._notify_progress("[渗透专家] 连续多步无新发现")
+            self._notify_progress(self._msg("msg_no_progress"))
             return True
 
         return False
@@ -537,7 +721,7 @@ class AttackLeader:
             任务执行结果
         """
         task_id = f"task_{self.context.get('action_count', 0) + 1}"
-        self._notify_progress(f"[武器大师] 收到指令: {instruction}")
+        self._notify_progress(self._msg("msg_weapon_received", instruction=instruction))
 
         # 构造简化的任务结构
         task = {
@@ -550,7 +734,7 @@ class AttackLeader:
         # 硬编码规则检查（基于指令内容）
         rule_result = self.rules.check_instruction(instruction, self.context)
         if rule_result.should_skip:
-            self._notify_progress(f"[武器大师] 任务被跳过: {rule_result.reason}")
+            self._notify_progress(self._msg("msg_weapon_skipped", reason=rule_result.reason))
             return {
                 "task_id": task_id,
                 "status": "skipped",
@@ -559,7 +743,7 @@ class AttackLeader:
             }
 
         if rule_result.should_abort:
-            self._notify_progress(f"[武器大师] 任务被中止: {rule_result.reason}")
+            self._notify_progress(self._msg("msg_weapon_aborted", reason=rule_result.reason))
             return {
                 "task_id": task_id,
                 "status": "aborted",
@@ -573,7 +757,7 @@ class AttackLeader:
                 return {
                     "task_id": task_id,
                     "status": "skipped",
-                    "summary": "用户跳过",
+                    "summary": self._msg("msg_user_skipped"),
                     "findings": {}
                 }
 
@@ -593,7 +777,7 @@ class AttackLeader:
                     result = {
                         "task_id": task_id,
                         "status": "skipped",
-                        "summary": "用户跳过输入",
+                        "summary": self._msg("msg_user_skipped_input"),
                         "findings": {}
                     }
                     break
@@ -602,9 +786,9 @@ class AttackLeader:
 
             task_status = result.get("status", "unknown")
             task_summary = result.get("summary", "")[:100]
-            self._notify_progress(f"[武器大师] 任务完成: {task_status}")
+            self._notify_progress(self._msg("msg_weapon_complete", status=task_status))
             if task_summary:
-                self._notify_progress(f"[武器大师] 结果: {task_summary}")
+                self._notify_progress(self._msg("msg_weapon_result", summary=task_summary))
 
             return result
 
@@ -631,12 +815,12 @@ class AttackLeader:
         action = task.get("action", "unknown")
         target = task.get("target", "")
 
-        self._notify_progress(f"[武器大师] 执行任务 {task_id}: {action} -> {target}")
+        self._notify_progress(self._msg("msg_weapon_executing", task_id=task_id, action=action, target=target))
 
         # 硬编码规则检查
         rule_result = self.rules.check(task, self.context)
         if rule_result.should_skip:
-            self._notify_progress(f"[武器大师] 任务 {task_id} 被跳过: {rule_result.reason}")
+            self._notify_progress(self._msg("msg_weapon_task_skipped", task_id=task_id, reason=rule_result.reason))
             return {
                 "task_id": task_id,
                 "status": "skipped",
@@ -645,7 +829,7 @@ class AttackLeader:
             }
 
         if rule_result.should_abort:
-            self._notify_progress(f"[武器大师] 任务 {task_id} 被中止: {rule_result.reason}")
+            self._notify_progress(self._msg("msg_weapon_task_aborted", task_id=task_id, reason=rule_result.reason))
             return {
                 "task_id": task_id,
                 "status": "aborted",
@@ -659,7 +843,7 @@ class AttackLeader:
                 return {
                     "task_id": task_id,
                     "status": "skipped",
-                    "summary": "用户跳过",
+                    "summary": self._msg("msg_user_skipped"),
                     "findings": {}
                 }
 
@@ -679,7 +863,7 @@ class AttackLeader:
                     result = {
                         "task_id": task_id,
                         "status": "skipped",
-                        "summary": "用户跳过输入",
+                        "summary": self._msg("msg_user_skipped_input"),
                         "findings": {}
                     }
                     break
@@ -688,9 +872,9 @@ class AttackLeader:
 
             task_status = result.get("status", "unknown")
             task_summary = result.get("summary", "")[:100]
-            self._notify_progress(f"[武器大师] 任务 {task_id} 完成: {task_status}")
+            self._notify_progress(self._msg("msg_weapon_task_complete", task_id=task_id, status=task_status))
             if task_summary:
-                self._notify_progress(f"[武器大师] 结果: {task_summary}")
+                self._notify_progress(self._msg("msg_weapon_task_result", summary=task_summary))
 
             return result
 
@@ -743,50 +927,50 @@ class AttackLeader:
         self.messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": f"""
-## 用户原始请求
+## {self._msg("decision_user_request")}
 "{user_request}"
 
-## 对话历史
+## {self._msg("decision_conversation_history")}
 {conversation_context}
 
-## 当前状态
-- 目标: {self.context['target'] or '未指定'}
-- 已执行步骤: {self.context['action_count']}
-- 当前发现: {findings_summary}
+## {self._msg("decision_current_status")}
+- {self._msg("decision_target")}: {self.context['target'] or self._msg("msg_target_unspecified")}
+- {self._msg("decision_steps_executed")}: {self.context['action_count']}
+- {self._msg("decision_current_findings")}: {findings_summary}
 
-{f"## 已执行的操作{chr(10)}{recent_history}" if self.context['action_count'] > 0 else ""}
+{f"## {self._msg('decision_executed_operations')}{chr(10)}{recent_history}" if self.context['action_count'] > 0 else ""}
 
-{f"## 上一步详细结果{chr(10)}{self.context.get('last_result_summary', '')[:500]}" if self.context.get('last_result_summary') else ""}
+{f"## {self._msg('decision_last_result')}{chr(10)}{self.context.get('last_result_summary', '')[:500]}" if self.context.get('last_result_summary') else ""}
 
-## 可用工具
+## {self._msg("decision_available_tools")}
 {available_tools}
 
 ---
 
-请像人一样思考：
+{self._msg("decision_think_like_human")}:
 
-1. 用户想要什么？
-2. 我已经做了什么？得到了什么结果？
-3. 用户的需求满足了吗？
+1. {self._msg("decision_q1")}
+2. {self._msg("decision_q2")}
+3. {self._msg("decision_q3")}
 
-**重要原则：**
-- 不要重复执行已经做过的操作（查看"已执行的操作"）
-- 如果某个操作失败了，不要用相同的方法重试，要换一种方法或放弃
-- 如果已经尽力尝试但无法获取更多信息，就停止并汇报当前结果
+**{self._msg("decision_important_principles")}:**
+- {self._msg("decision_no_repeat")}
+- {self._msg("decision_no_same_retry")}
+- {self._msg("decision_stop_if_stuck")}
 
-返回 JSON：
+{self._msg("decision_return_json")}:
 
-需求已满足，或无法继续：
+{self._msg("decision_complete_desc")}:
 {{
     "type": "complete",
-    "reason": "对用户说的话（汇报结果）"
+    "reason": "{self._msg("decision_complete_reason")}"
 }}
 
-需求未满足，继续执行新操作：
+{self._msg("decision_continue_desc")}:
 {{
     "type": "execute_task",
-    "instruction": "告诉武器大师要做什么（必须是之前没做过的操作）",
-    "reason": "为什么要这么做"
+    "instruction": "{self._msg("decision_instruction_desc")}",
+    "reason": "{self._msg("decision_reason_desc")}"
 }}
 """}
         ]
@@ -797,7 +981,7 @@ class AttackLeader:
             return decision
         except (json.JSONDecodeError, Exception) as e:
             write_to_logs(f"渗透专家: 决策失败 - {e}")
-            return {"type": "complete", "reason": "决策异常，终止执行"}
+            return {"type": "complete", "reason": self._msg("msg_decision_error")}
 
     def wait_for_confirm(self, task: dict, message: str) -> bool:
         """等待用户确认"""
@@ -806,11 +990,11 @@ class AttackLeader:
 
         # CLI 模式
         print(f"\n{'='*50}")
-        print(f"需要确认: {message}")
+        print(f"{self._msg('msg_need_confirm')}: {message}")
         if task:
-            print(f"任务: {task.get('action', '')} -> {task.get('target', '')}")
+            print(f"{self._msg('msg_task_label')}: {task.get('action', '')} -> {task.get('target', '')}")
         print(f"{'='*50}")
-        response = input("是否继续? (y/n): ").strip().lower()
+        response = input(self._msg("msg_continue_confirm") + " ").strip().lower()
         return response in ['y', 'yes', '是']
 
     def handle_user_request(self, request: str):
