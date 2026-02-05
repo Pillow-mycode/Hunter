@@ -33,7 +33,7 @@ Hunter 是一个强大的自动化渗透测试系统。在这里，你不需要�
 
 ```bash
 #进入项目
-cd hunter-server
+cd Hunter/hunter-server
 
 #创建虚拟环境
 python -m venv venv
