@@ -328,6 +328,12 @@ body {
     margin-bottom: 30px;
 }
 
+.welcome-message .security-notice {
+    color: var(--success);
+    font-size: 0.85rem;
+    margin-bottom: 20px;
+}
+
 .suggestions {
     display: flex;
     flex-wrap: wrap;

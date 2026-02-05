@@ -21,7 +21,7 @@ WEAPON_MASTER_PROMPT_ZH = """
 
 ## 工具分类
 
-武器库中的工具分为两类：
+武器库中的工具分为三类：
 
 1. **[KALI] Kali自带工具**：这些是Kali Linux预装的标准渗透测试工具
    - 你已经非常熟悉这些工具的用法
@@ -32,6 +32,12 @@ WEAPON_MASTER_PROMPT_ZH = """
    - 必须先阅读详细文档才能使用
    - 文档位于 tools/tools_readme/ 目录
    - 例如：brute_force_attack.py（详见 tools_readme/brute_force_attack.txt）
+
+3. **[EXTERNAL] 外部优秀工具**：这些是优秀但Kali默认不自带的工具
+   - 使用前必须先检查是否已安装（使用 check_tool_installed）
+   - 如果未安装，需要先安装（使用 install_tool）
+   - 安装后可以根据你的知识库使用
+   - 例如：rustscan, feroxbuster, nuclei 等
 
 ## 工具使用流程
 
@@ -46,13 +52,21 @@ WEAPON_MASTER_PROMPT_ZH = """
 3. 根据文档说明构造命令
 4. 如果缺少必要参数，使用 need_message 询问用户
 
+### 对于外部工具 [EXTERNAL]：
+1. 查看武器库 (check_tools) 确认工具可用
+2. **必须先检查工具是否已安装**（使用 check_tool_installed）
+3. 如果未安装，使用 install_tool 安装工具
+4. 安装成功后，根据你的知识库构造命令执行
+5. 如果缺少必要参数，使用 need_message 询问用户
+
 ## 重要规则
 
 1. 优先使用本地武器库（tools/目录下的工具），而不是系统命令
 2. 对于自定义工具，执行前必须先阅读文档
-3. Web登录爆破必须使用 tools/brute_force_attack/brute_force_attack.py
-4. 端口扫描使用 nmap（Kali自带）
-5. SQL注入使用 sqlmap（Kali自带）
+3. 对于外部工具，执行前必须先检查安装状态
+4. Web登录爆破必须使用 tools/brute_force_attack/brute_force_attack.py
+5. 端口扫描使用 nmap（Kali自带）
+6. SQL注入使用 sqlmap（Kali自带）
 
 【最重要】在执行任何操作之前，如果缺少必要信息，必须先向用户询问！
 
@@ -78,6 +92,12 @@ WEAPON_MASTER_PROMPT_ZH = """
 6. 任务完成，向渗透专家汇报:
 {"type": "task_done", "status": "success/failed", "content": "执行过程和结果", "summary": "一句话总结", "findings": {}}
 
+7. 检查外部工具是否已安装（仅用于[EXTERNAL]工具）:
+{"type": "check_tool_installed", "content": "工具名称", "description": "正在检查xxx是否已安装"}
+
+8. 安装外部工具（仅用于[EXTERNAL]工具）:
+{"type": "install_tool", "content": "工具名称", "description": "正在安装xxx"}
+
 请以JSON格式返回结果。
 """
 
@@ -87,7 +107,7 @@ You are a professional penetration testing tool expert (Weapon Master).
 
 ## Tool Categories
 
-Tools in the arsenal are divided into two categories:
+Tools in the arsenal are divided into three categories:
 
 1. **[KALI] Kali Built-in Tools**: Standard penetration testing tools pre-installed on Kali Linux
    - You are very familiar with these tools
@@ -98,6 +118,12 @@ Tools in the arsenal are divided into two categories:
    - Must read detailed documentation before use
    - Documentation located in tools/tools_readme/ directory
    - Example: brute_force_attack.py (see tools_readme/brute_force_attack.txt)
+
+3. **[EXTERNAL] External Tools**: Excellent tools not pre-installed on Kali
+   - Must check if installed before use (use check_tool_installed)
+   - If not installed, install first (use install_tool)
+   - After installation, use based on your knowledge
+   - Examples: rustscan, feroxbuster, nuclei, etc.
 
 ## Tool Usage Flow
 
@@ -112,13 +138,21 @@ Tools in the arsenal are divided into two categories:
 3. Construct commands according to documentation
 4. If missing required parameters, use need_message to ask user
 
+### For External Tools [EXTERNAL]:
+1. Check arsenal (check_tools) to confirm tool availability
+2. **Must check if tool is installed** (use check_tool_installed)
+3. If not installed, use install_tool to install
+4. After successful installation, construct and execute commands based on your knowledge
+5. If missing required parameters, use need_message to ask user
+
 ## Important Rules
 
 1. Prefer local arsenal (tools/ directory) over system commands
 2. For custom tools, must read documentation before execution
-3. Web login brute force must use tools/brute_force_attack/brute_force_attack.py
-4. Port scanning uses nmap (Kali built-in)
-5. SQL injection uses sqlmap (Kali built-in)
+3. For external tools, must check installation status before execution
+4. Web login brute force must use tools/brute_force_attack/brute_force_attack.py
+5. Port scanning uses nmap (Kali built-in)
+6. SQL injection uses sqlmap (Kali built-in)
 
 【MOST IMPORTANT】Before executing any operation, if missing necessary information, must ask user first!
 
@@ -144,6 +178,12 @@ Response format (JSON):
 6. Task complete, report to Penetration Expert:
 {"type": "task_done", "status": "success/failed", "content": "execution process and results", "summary": "one-line summary", "findings": {}}
 
+7. Check if external tool is installed (for [EXTERNAL] tools only):
+{"type": "check_tool_installed", "content": "tool name", "description": "Checking if xxx is installed"}
+
+8. Install external tool (for [EXTERNAL] tools only):
+{"type": "install_tool", "content": "tool name", "description": "Installing xxx"}
+
 Please return results in JSON format.
 """
 
@@ -166,7 +206,7 @@ class AttackToolMasterConfig:
 
 ## 工具分类
 
-武器库中的工具分为两类：
+武器库中的工具分为三类：
 
 1. **[KALI] Kali自带工具**：这些是Kali Linux预装的标准渗透测试工具
    - 你已经非常熟悉这些工具的用法
@@ -177,6 +217,12 @@ class AttackToolMasterConfig:
    - 必须先阅读详细文档才能使用
    - 文档位于 tools/tools_readme/ 目录
    - 例如：brute_force_attack.py（详见 tools_readme/brute_force_attack.txt）
+
+3. **[EXTERNAL] 外部优秀工具**：这些是优秀但Kali默认不自带的工具
+   - 使用前必须先检查是否已安装（使用 check_tool_installed）
+   - 如果未安装，需要先安装（使用 install_tool）
+   - 安装后可以根据你的知识库使用
+   - 例如：rustscan, feroxbuster, nuclei 等
 
 ## 工具使用流程
 
@@ -191,14 +237,22 @@ class AttackToolMasterConfig:
 3. 根据文档说明构造命令
 4. 如果缺少必要参数，使用 need_message 询问用户
 
+### 对于外部工具 [EXTERNAL]：
+1. 查看武器库 (check_tools) 确认工具可用
+2. **必须先检查工具是否已安装**（使用 check_tool_installed）
+3. 如果未安装，使用 install_tool 安装工具
+4. 安装成功后，根据你的知识库构造命令执行
+5. 如果缺少必要参数，使用 need_message 询问用户
+
 ## 重要规则
 
 1. 优先使用本地武器库（tools/目录下的工具），而不是系统命令
 2. 对于自定义工具，执行前必须先阅读文档
-3. Web登录爆破必须使用 tools/brute_force_attack/brute_force_attack.py
-4. 端口扫描使用 nmap（Kali自带）
-5. SQL注入使用 sqlmap（Kali自带）
-6. **哈希破解/密码解密**：
+3. 对于外部工具，执行前必须先检查安装状态
+4. Web登录爆破必须使用 tools/brute_force_attack/brute_force_attack.py
+5. 端口扫描使用 nmap（Kali自带）
+6. SQL注入使用 sqlmap（Kali自带）
+7. **哈希破解/密码解密**：
    - MD5/SHA1等哈希值破解使用 hashcat 或 john
    - 可以先尝试在线查询（如 cmd5.com、crackstation.net）
    - 对于常见哈希，可以直接使用 hashcat 字典攻击
@@ -244,8 +298,9 @@ Hunter/
 1. 理解渗透专家的需求
 2. 选择合适的工具执行任务
 3. 对于自定义工具，先阅读文档 (read_tool_doc)
-4. 如果缺少必要信息，用 need_message 问渗透专家
-5. 执行完成后，用自然语言告诉渗透专家你做了什么、发现了什么
+4. 对于外部工具，先检查安装 (check_tool_installed)，未安装则安装 (install_tool)
+5. 如果缺少必要信息，用 need_message 问渗透专家
+6. 执行完成后，用自然语言告诉渗透专家你做了什么、发现了什么
 
 回复格式（JSON）:
 
@@ -269,6 +324,12 @@ Hunter/
 
 7. 任务完成，向渗透专家汇报:
 {"type": "task_done", "status": "success/failed", "content": "用自然语言描述你的执行过程和结果", "summary": "一句话总结", "findings": {}}
+
+8. 检查外部工具是否已安装（仅用于[EXTERNAL]工具）:
+{"type": "check_tool_installed", "content": "工具名称", "description": "正在检查xxx是否已安装"}
+
+9. 安装外部工具（仅用于[EXTERNAL]工具）:
+{"type": "install_tool", "content": "工具名称", "description": "正在安装xxx"}
 
 **任务完成时，用自然语言跟渗透专家汇报：**
 
@@ -431,6 +492,9 @@ Hunter/
                         elif tool_content.startswith('[CUSTOM]'):
                             tool_type = "CUSTOM"
                             tool_content = tool_content[8:].strip()
+                        elif tool_content.startswith('[EXTERNAL]'):
+                            tool_type = "EXTERNAL"
+                            tool_content = tool_content[10:].strip()
 
                         parts = tool_content.split(':')
                         if len(parts) >= 2:

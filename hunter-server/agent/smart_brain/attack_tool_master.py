@@ -39,6 +39,51 @@ class AttackToolMaster:
             self.on_progress(message)
         print(message)
 
+    def _get_install_command(self, tool_name: str) -> str:
+        """获取外部工具的安装命令"""
+        # 外部工具安装命令映射表
+        install_commands = {
+            # 扫描工具
+            "rustscan": "sudo apt update && sudo apt install -y rustscan || cargo install rustscan",
+            "feroxbuster": "sudo apt update && sudo apt install -y feroxbuster",
+            "dirsearch": "sudo apt update && sudo apt install -y dirsearch || pip install dirsearch",
+            "nuclei": "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest || sudo apt install -y nuclei",
+            "subfinder": "go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest || sudo apt install -y subfinder",
+            "httpx": "go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest || sudo apt install -y httpx",
+            "katana": "go install github.com/projectdiscovery/katana/cmd/katana@latest",
+
+            # 漏洞扫描
+            "testssl.sh": "sudo apt update && sudo apt install -y testssl.sh || git clone --depth 1 https://github.com/drwetter/testssl.sh.git /opt/testssl.sh",
+            "nikto": "sudo apt update && sudo apt install -y nikto",
+
+            # 密码工具
+            "hashcat": "sudo apt update && sudo apt install -y hashcat",
+
+            # 后渗透
+            "bloodhound": "sudo apt update && sudo apt install -y bloodhound",
+            "evil-winrm": "sudo gem install evil-winrm",
+            "crackmapexec": "sudo apt update && sudo apt install -y crackmapexec || pipx install crackmapexec",
+
+            # 其他工具
+            "gobuster": "sudo apt update && sudo apt install -y gobuster",
+            "ffuf": "sudo apt update && sudo apt install -y ffuf",
+            "seclists": "sudo apt update && sudo apt install -y seclists",
+            "wordlists": "sudo apt update && sudo apt install -y wordlists",
+
+            # Python 工具
+            "impacket": "pip install impacket || pipx install impacket",
+            "pwntools": "pip install pwntools",
+
+            # Go 工具通用安装
+            "amass": "sudo apt update && sudo apt install -y amass",
+            "assetfinder": "go install github.com/tomnomnom/assetfinder@latest",
+            "waybackurls": "go install github.com/tomnomnom/waybackurls@latest",
+            "gau": "go install github.com/lc/gau/v2/cmd/gau@latest",
+            "anew": "go install github.com/tomnomnom/anew@latest",
+        }
+
+        return install_commands.get(tool_name.lower(), "")
+
     def get_response(self, messages):
         """获取LLM响应，带智能截断和重试机制"""
         max_total_length = 200000
@@ -235,6 +280,65 @@ class AttackToolMaster:
                             self.append_message("system", error_msg)
                     except Exception as e:
                         error_msg = f"错误: 读取工具文档失败 - {str(e)}"
+                        print(error_msg)
+                        write_to_logs(error_msg)
+                        self.append_message("system", error_msg)
+                    continue
+
+                elif response_type == "check_tool_installed":
+                    tool_name = response_content
+                    print(f"武器大师: {response_description}")
+                    write_to_logs(f"武器大师: 检查工具是否已安装 - {tool_name}")
+
+                    # 使用 which 命令检查工具是否已安装
+                    check_result = sys_shell(f"which {tool_name} 2>/dev/null || echo 'NOT_INSTALLED'")
+                    if not isinstance(check_result, str):
+                        check_result = str(check_result)
+
+                    if "NOT_INSTALLED" in check_result or not check_result.strip():
+                        result_msg = f"工具 {tool_name} 未安装"
+                        write_to_logs(f"system: {result_msg}")
+                        self.append_message("system", result_msg)
+                    else:
+                        result_msg = f"工具 {tool_name} 已安装，路径: {check_result.strip()}"
+                        write_to_logs(f"system: {result_msg}")
+                        self.append_message("system", result_msg)
+                    continue
+
+                elif response_type == "install_tool":
+                    tool_name = response_content
+                    print(f"武器大师: {response_description}")
+                    write_to_logs(f"武器大师: 安装工具 - {tool_name}")
+                    self._notify_progress(f"[武器大师] 正在安装工具: {tool_name}")
+
+                    # 查找工具的安装命令
+                    install_cmd = self._get_install_command(tool_name)
+                    if install_cmd:
+                        results = sys_shell(install_cmd)
+                        if not isinstance(results, str):
+                            results = str(results)
+
+                        write_to_logs(f"system: 安装结果:{results[:500]}...")
+
+                        # 处理过长输出
+                        results, file_path = process_long_output(
+                            results,
+                            install_cmd,
+                            self.current_task_id or task_id,
+                            threshold=30000
+                        )
+
+                        if file_path:
+                            self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
+
+                        # 验证安装是否成功
+                        verify_result = sys_shell(f"which {tool_name} 2>/dev/null || echo 'NOT_INSTALLED'")
+                        if "NOT_INSTALLED" not in str(verify_result) and str(verify_result).strip():
+                            self.append_message("system", f"工具 {tool_name} 安装成功\n安装输出:\n{results}")
+                        else:
+                            self.append_message("system", f"工具 {tool_name} 安装可能失败，请检查\n安装输出:\n{results}")
+                    else:
+                        error_msg = f"错误: 未找到工具 {tool_name} 的安装命令，请手动安装"
                         print(error_msg)
                         write_to_logs(error_msg)
                         self.append_message("system", error_msg)
@@ -458,6 +562,54 @@ class AttackToolMaster:
                             self.append_message("system", f"错误: 找不到工具文档 {doc_path}")
                     except Exception as e:
                         self.append_message("system", f"错误: 读取工具文档失败 - {str(e)}")
+                    continue
+
+                elif response_type == "check_tool_installed":
+                    tool_name = response_content
+                    print(f"武器大师: {response_description}")
+                    write_to_logs(f"武器大师: 检查工具是否已安装 - {tool_name}")
+
+                    check_result = sys_shell(f"which {tool_name} 2>/dev/null || echo 'NOT_INSTALLED'")
+                    if not isinstance(check_result, str):
+                        check_result = str(check_result)
+
+                    if "NOT_INSTALLED" in check_result or not check_result.strip():
+                        result_msg = f"工具 {tool_name} 未安装"
+                        self.append_message("system", result_msg)
+                    else:
+                        result_msg = f"工具 {tool_name} 已安装，路径: {check_result.strip()}"
+                        self.append_message("system", result_msg)
+                    continue
+
+                elif response_type == "install_tool":
+                    tool_name = response_content
+                    print(f"武器大师: {response_description}")
+                    write_to_logs(f"武器大师: 安装工具 - {tool_name}")
+                    self._notify_progress(f"[武器大师] 正在安装工具: {tool_name}")
+
+                    install_cmd = self._get_install_command(tool_name)
+                    if install_cmd:
+                        results = sys_shell(install_cmd)
+                        if not isinstance(results, str):
+                            results = str(results)
+
+                        results, file_path = process_long_output(
+                            results,
+                            install_cmd,
+                            self.current_task_id or task_id,
+                            threshold=30000
+                        )
+
+                        if file_path:
+                            self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
+
+                        verify_result = sys_shell(f"which {tool_name} 2>/dev/null || echo 'NOT_INSTALLED'")
+                        if "NOT_INSTALLED" not in str(verify_result) and str(verify_result).strip():
+                            self.append_message("system", f"工具 {tool_name} 安装成功\n安装输出:\n{results}")
+                        else:
+                            self.append_message("system", f"工具 {tool_name} 安装可能失败，请检查\n安装输出:\n{results}")
+                    else:
+                        self.append_message("system", f"错误: 未找到工具 {tool_name} 的安装命令，请手动安装")
                     continue
 
                 elif response_type == "shell":
