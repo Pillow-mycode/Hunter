@@ -119,7 +119,6 @@ LEADER_API_KEY=
 ### 3. 启动 FastAPI 服务端
 
 ```bash
-# 在项目根目录
 python server/app.py
 ```
 
