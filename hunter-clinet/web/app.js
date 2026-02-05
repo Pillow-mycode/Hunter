@@ -25,12 +25,17 @@ const i18n = {
         chatTitle: 'Hunter 渗透测试助手',
         welcomeTitle: '欢迎使用 Hunter',
         welcomeDesc: '我是自动化渗透测试助手，可以帮你执行各种安全测试任务。',
+        securityNotice: '本网页无任何后门或攻击性脚本，请放心使用',
         inputPlaceholder: '输入渗透测试需求，例如：对 example.com 进行端口扫描',
         inputHint: '按 Enter 发送，Shift + Enter 换行',
         portScan: '端口扫描',
         subdomainEnum: '子域名枚举',
         loginBrute: '登录爆破',
         sqlInjection: 'SQL注入检测',
+        portScanCmd: '对 192.168.1.1 进行端口扫描',
+        subdomainEnumCmd: '对 example.com 进行子域名枚举',
+        loginBruteCmd: '对 example.com/login 进行登录爆破',
+        sqlInjectionCmd: '检测 example.com 是否存在 SQL 注入',
         taskRunning: '当前任务正在执行中，请等待完成后再发送新消息',
         taskStopped: '任务已停止',
         connectionError: '连接错误，请重试',
@@ -53,9 +58,26 @@ const i18n = {
         items: '项',
         fullResultSaved: '完整结果已保存',
         running: '正在运行',
+        runningCmd: '正在运行:',
         timeout: '超时',
         needInput: '需要输入',
-        language: '语言'
+        language: '语言',
+        sessionId: '会话 ID',
+        task: '任务',
+        justNow: '刚刚',
+        minutesAgo: '分钟前',
+        hoursAgo: '小时前',
+        processed: '(已处理)',
+        pleaseInput: '请输入...',
+        createSessionFailed: '创建会话失败',
+        getSessionsFailed: '获取会话列表失败',
+        getHistoryFailed: '获取对话历史失败',
+        deleteSessionFailed: '删除会话失败',
+        wsConnectFailed: 'WebSocket 连接失败',
+        taskAborted: '任务被中止',
+        taskStatus: '任务状态',
+        unknownReason: '未知原因',
+        delete: '删除'
     },
     en: {
         title: 'Hunter - Automated Penetration Testing',
@@ -69,12 +91,17 @@ const i18n = {
         chatTitle: 'Hunter Pentest Assistant',
         welcomeTitle: 'Welcome to Hunter',
         welcomeDesc: 'I am an automated penetration testing assistant, ready to help you with security testing tasks.',
+        securityNotice: 'This page contains no backdoors or malicious scripts, safe to use',
         inputPlaceholder: 'Enter your pentest request, e.g.: Scan ports on example.com',
         inputHint: 'Press Enter to send, Shift + Enter for new line',
         portScan: 'Port Scan',
         subdomainEnum: 'Subdomain Enum',
         loginBrute: 'Login Brute',
         sqlInjection: 'SQL Injection',
+        portScanCmd: 'Scan ports on 192.168.1.1',
+        subdomainEnumCmd: 'Enumerate subdomains of example.com',
+        loginBruteCmd: 'Brute force login on example.com/login',
+        sqlInjectionCmd: 'Test SQL injection on example.com',
         taskRunning: 'Task is running, please wait for completion',
         taskStopped: 'Task stopped',
         connectionError: 'Connection error, please retry',
@@ -97,9 +124,26 @@ const i18n = {
         items: 'items',
         fullResultSaved: 'Full result saved',
         running: 'Running',
+        runningCmd: 'Running:',
         timeout: 'Timeout',
         needInput: 'Input required',
-        language: 'Language'
+        language: 'Language',
+        sessionId: 'Session ID',
+        task: 'Task',
+        justNow: 'Just now',
+        minutesAgo: 'min ago',
+        hoursAgo: 'hours ago',
+        processed: '(Processed)',
+        pleaseInput: 'Enter here...',
+        createSessionFailed: 'Failed to create session',
+        getSessionsFailed: 'Failed to get sessions',
+        getHistoryFailed: 'Failed to get history',
+        deleteSessionFailed: 'Failed to delete session',
+        wsConnectFailed: 'WebSocket connection failed',
+        taskAborted: 'Task aborted',
+        taskStatus: 'Task status',
+        unknownReason: 'Unknown reason',
+        delete: 'Delete'
     }
 };
 
@@ -117,7 +161,7 @@ const state = {
     sessions: [],            // 会话列表（从服务端获取）
     pendingInteractions: {}, // 存储每个会话的待处理交互 { session_id: { type, data, timestamp } }
     sessionProgress: {},     // 存储每个会话的进度消息（运行时缓存）{ session_id: [messages] }
-    language: 'zh'  // 固定中文
+    language: localStorage.getItem('hunter_language') || 'zh'  // 从 localStorage 读取语言设置
 };
 
 // DOM 元素
@@ -137,6 +181,13 @@ const elements = {
 document.addEventListener('DOMContentLoaded', () => {
     autoResizeTextarea();
     updateUILanguage();
+
+    // 绑定语言切换按钮事件
+    const langBtn = document.getElementById('langBtn');
+    if (langBtn) {
+        langBtn.addEventListener('click', toggleLanguage);
+    }
+
     connectServer();
 });
 
@@ -154,6 +205,13 @@ function updateUILanguage() {
     document.getElementById('serverUrl').placeholder = t('serverAddress');
     document.querySelector('.server-config button').textContent = t('connect');
 
+    // 更新语言切换按钮
+    const langBtn = document.getElementById('langBtn');
+    if (langBtn) {
+        langBtn.textContent = state.language === 'zh' ? 'EN' : '中';
+        langBtn.title = state.language === 'zh' ? 'Switch to English' : '切换到中文';
+    }
+
     // 更新聊天标题
     if (!state.currentSessionId) {
         elements.chatTitle().textContent = t('chatTitle');
@@ -167,15 +225,32 @@ function updateUILanguage() {
     const welcome = document.querySelector('.welcome-message');
     if (welcome) {
         welcome.querySelector('h2').textContent = t('welcomeTitle');
-        welcome.querySelector('p').textContent = t('welcomeDesc');
+        welcome.querySelector('p:not(.security-notice)').textContent = t('welcomeDesc');
+        const securityNotice = welcome.querySelector('.security-notice');
+        if (securityNotice) {
+            securityNotice.textContent = t('securityNotice');
+        }
         const suggestions = welcome.querySelectorAll('.suggestions button');
         if (suggestions.length >= 4) {
             suggestions[0].textContent = t('portScan');
+            suggestions[0].onclick = () => sendSuggestion(t('portScanCmd'));
             suggestions[1].textContent = t('subdomainEnum');
+            suggestions[1].onclick = () => sendSuggestion(t('subdomainEnumCmd'));
             suggestions[2].textContent = t('loginBrute');
+            suggestions[2].onclick = () => sendSuggestion(t('loginBruteCmd'));
             suggestions[3].textContent = t('sqlInjection');
+            suggestions[3].onclick = () => sendSuggestion(t('sqlInjectionCmd'));
         }
     }
+}
+
+// 切换语言
+function toggleLanguage() {
+    state.language = state.language === 'zh' ? 'en' : 'zh';
+    localStorage.setItem('hunter_language', state.language);
+    updateUILanguage();
+    // 重新渲染会话列表以更新时间格式
+    renderSessionList();
 }
 
 // 自动调整输入框高度
@@ -216,7 +291,7 @@ async function connectServer() {
 function updateServerStatus(status) {
     const statusEl = elements.serverStatus();
     const dot = statusEl.querySelector('.status-dot');
-    const text = statusEl.querySelector('span:last-child');
+    const text = statusEl.querySelector('.status-text');
 
     dot.className = 'status-dot ' + status;
 
@@ -268,7 +343,7 @@ async function sendMessage() {
                 body: JSON.stringify({ name: message.substring(0, 30) })
             });
 
-            if (!response.ok) throw new Error('创建会话失败');
+            if (!response.ok) throw new Error(t('createSessionFailed'));
 
             const data = await response.json();
             const sessionId = data.session_id;
@@ -286,7 +361,7 @@ async function sendMessage() {
 
             // 更新当前会话 ID
             state.currentSessionId = sessionId;
-            elements.currentTaskId().textContent = `会话 ID: ${sessionId}`;
+            elements.currentTaskId().textContent = `${t('sessionId')}: ${sessionId}`;
 
             // 连接 WebSocket
             await connectWebSocket(sessionId);
@@ -318,12 +393,12 @@ async function sendMessage() {
             showStopButton();
             updateSessionStatus(sessionId, 'running');
         } else {
-            throw new Error('WebSocket 连接失败');
+            throw new Error(t('wsConnectFailed'));
         }
 
     } catch (error) {
         console.error(`[发送消息] 错误:`, error);
-        addMessage('assistant', `错误: ${error.message}`);
+        addMessage('assistant', `${t('error')}: ${error.message}`);
         showSendButton();
     }
 }
@@ -382,7 +457,7 @@ function connectWebSocket(sessionId) {
             // 只在当前会话时显示错误
             if (sessionId === state.currentSessionId) {
                 removeTypingIndicator();
-                addMessage('assistant', '连接错误，请重试');
+                addMessage('assistant', t('connectionError'));
                 showSendButton();
             }
             reject(error);
@@ -507,7 +582,7 @@ function handleServerMessage(sessionId, data) {
 
             if (isCurrentSession) {
                 removeTypingIndicator();
-                addMessage('assistant', '任务已取消');
+                addMessage('assistant', t('taskCancelled'));
                 showSendButton();
             }
             break;
@@ -552,7 +627,7 @@ function addFileNotification(fileInfo) {
     notificationEl.innerHTML = `
         <div class="message-avatar">📁</div>
         <div class="message-content file-content">
-            <div class="file-header">完整结果已保存</div>
+            <div class="file-header">${t('fullResultSaved')}</div>
             <div class="file-path">${escapeHtml(fileInfo)}</div>
         </div>
     `;
@@ -597,7 +672,7 @@ function addCommandLine(cmd, timestamp) {
     line.className = 'progress-line command-line';
     line.innerHTML = `
         <span class="progress-time">${time}</span>
-        <span class="command-label">正在运行:</span>
+        <span class="command-label">${t('runningCmd')}</span>
         <code class="command-text">${escapeHtml(cmd)}</code>
     `;
     content.appendChild(line);
@@ -682,10 +757,10 @@ function addInputRequest(prompt, sessionId) {
         <div class="message-content">
             <p>${escapeHtml(prompt)}</p>
             <div class="input-form">
-                <textarea placeholder="请输入..." rows="2"></textarea>
+                <textarea placeholder="${t('pleaseInput')}" rows="2"></textarea>
                 <div class="btn-group">
-                    <button class="btn-submit" onclick="submitInput(this, '${sessionId}')">提交</button>
-                    <button class="btn-skip" onclick="skipInput(this, '${sessionId}')">跳过</button>
+                    <button class="btn-submit" onclick="submitInput(this, '${sessionId}')">${t('submit')}</button>
+                    <button class="btn-skip" onclick="skipInput(this, '${sessionId}')">${t('skip')}</button>
                 </div>
             </div>
         </div>
@@ -749,7 +824,7 @@ function skipInput(btn, sessionId) {
         }));
     }
 
-    addMessage('user', '(跳过)');
+    addMessage('user', t('skipped'));
     addTypingIndicator();
 }
 
@@ -757,7 +832,7 @@ function skipInput(btn, sessionId) {
 function addConfirmRequest(message, task, sessionId) {
     const container = elements.chatMessages();
 
-    const taskInfo = task ? `\n任务: ${task.action} -> ${task.target}` : '';
+    const taskInfo = task ? `\n${t('task')}: ${task.action} -> ${task.target}` : '';
 
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant confirm-required';
@@ -766,8 +841,8 @@ function addConfirmRequest(message, task, sessionId) {
         <div class="message-content">
             <p>${escapeHtml(message)}${escapeHtml(taskInfo)}</p>
             <div class="confirm-buttons">
-                <button class="btn-yes" onclick="confirmAction(true, this, '${sessionId}')">确认执行</button>
-                <button class="btn-no" onclick="confirmAction(false, this, '${sessionId}')">取消</button>
+                <button class="btn-yes" onclick="confirmAction(true, this, '${sessionId}')">${t('confirm')}</button>
+                <button class="btn-no" onclick="confirmAction(false, this, '${sessionId}')">${t('cancel')}</button>
             </div>
         </div>
     `;
@@ -797,7 +872,7 @@ function confirmAction(confirmed, btn, sessionId) {
         }));
     }
 
-    addMessage('user', confirmed ? '确认执行' : '取消');
+    addMessage('user', confirmed ? t('confirm') : t('cancel'));
     if (confirmed) {
         addTypingIndicator();
     }
@@ -827,38 +902,38 @@ function handleCompleted(result) {
             let content = '';
 
             if (report.summary) {
-                content += `**摘要**\n${report.summary}\n\n`;
+                content += `**${t('summary')}**\n${report.summary}\n\n`;
             }
 
             if (hasFindings) {
-                content += `**发现**\n`;
+                content += `**${t('findings')}**\n`;
                 for (const [key, value] of Object.entries(report.findings)) {
                     if (Array.isArray(value) && value.length > 0) {
-                        content += `- ${key}: ${value.length} 项\n`;
+                        content += `- ${key}: ${value.length} ${t('items')}\n`;
                     } else if (typeof value === 'object' && Object.keys(value).length > 0) {
-                        content += `- ${key}: ${Object.keys(value).length} 项\n`;
+                        content += `- ${key}: ${Object.keys(value).length} ${t('items')}\n`;
                     }
                 }
                 content += '\n';
             }
 
             if (hasConclusion) {
-                content += `**结论**\n${report.conclusion}\n\n`;
+                content += `**${t('conclusion')}**\n${report.conclusion}\n\n`;
             }
 
             if (hasRecommendations) {
-                content += `**建议**\n`;
+                content += `**${t('recommendations')}**\n`;
                 report.recommendations.forEach((rec, i) => {
                     content += `${i + 1}. ${rec}\n`;
                 });
             }
 
-            addFinalMessage('assistant', content || '任务已完成');
+            addFinalMessage('assistant', content || t('taskCompleted'));
         }
     } else if (status === 'aborted') {
-        addFinalMessage('assistant', `任务被中止: ${result.reason || '未知原因'}`, 'error');
+        addFinalMessage('assistant', `${t('taskAborted')}: ${result.reason || t('unknownReason')}`, 'error');
     } else {
-        addFinalMessage('assistant', `任务状态: ${status}`);
+        addFinalMessage('assistant', `${t('taskStatus')}: ${status}`);
     }
 }
 
@@ -917,19 +992,20 @@ function newChat() {
     state.messages = [];
 
     elements.currentTaskId().textContent = '';
-    elements.chatTitle().textContent = 'Hunter 渗透测试助手';
+    elements.chatTitle().textContent = t('chatTitle');
 
     const container = elements.chatMessages();
     container.innerHTML = `
         <div class="welcome-message">
             <div class="welcome-icon"><img src="hunter.png" alt="Hunter" class="welcome-logo"></div>
-            <h2>欢迎使用 Hunter</h2>
-            <p>我是自动化渗透测试助手，可以帮你执行各种安全测试任务。</p>
+            <h2>${t('welcomeTitle')}</h2>
+            <p>${t('welcomeDesc')}</p>
+            <p class="security-notice">${t('securityNotice')}</p>
             <div class="suggestions">
-                <button onclick="sendSuggestion('对 192.168.1.1 进行端口扫描')">端口扫描</button>
-                <button onclick="sendSuggestion('对 example.com 进行子域名枚举')">子域名枚举</button>
-                <button onclick="sendSuggestion('对 example.com/login 进行登录爆破')">登录爆破</button>
-                <button onclick="sendSuggestion('检测 example.com 是否存在 SQL 注入')">SQL注入检测</button>
+                <button onclick="sendSuggestion('${t('portScanCmd')}')">${t('portScan')}</button>
+                <button onclick="sendSuggestion('${t('subdomainEnumCmd')}')">${t('subdomainEnum')}</button>
+                <button onclick="sendSuggestion('${t('loginBruteCmd')}')">${t('loginBrute')}</button>
+                <button onclick="sendSuggestion('${t('sqlInjectionCmd')}')">${t('sqlInjection')}</button>
             </div>
         </div>
     `;
@@ -946,7 +1022,7 @@ function newChat() {
 async function loadSessionsFromServer() {
     try {
         const response = await fetch(`http://${state.serverUrl}/sessions`);
-        if (!response.ok) throw new Error('获取会话列表失败');
+        if (!response.ok) throw new Error(t('getSessionsFailed'));
 
         const sessions = await response.json();
         state.sessions = sessions;
@@ -986,7 +1062,7 @@ function renderSessionList() {
             </div>
             <span class="task-status-icon">${statusIcon}</span>
             <span class="task-status ${session.status}"></span>
-            <button class="task-delete-btn" onclick="event.stopPropagation(); deleteSession('${session.id}')" title="删除">
+            <button class="task-delete-btn" onclick="event.stopPropagation(); deleteSession('${session.id}')" title="${t('delete')}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M18 6L6 18M6 6l12 12"/>
                 </svg>
@@ -1005,7 +1081,7 @@ async function loadSession(sessionId) {
     // 更新 UI
     const session = state.sessions.find(s => s.id === sessionId);
     if (session) {
-        elements.currentTaskId().textContent = `会话 ID: ${sessionId}`;
+        elements.currentTaskId().textContent = `${t('sessionId')}: ${sessionId}`;
         elements.chatTitle().textContent = session.name.substring(0, 50) + (session.name.length > 50 ? '...' : '');
     }
 
@@ -1019,7 +1095,7 @@ async function loadSession(sessionId) {
     try {
         // 从服务器获取会话的所有消息
         const response = await fetch(`http://${state.serverUrl}/session/${sessionId}/messages`);
-        if (!response.ok) throw new Error('获取对话历史失败');
+        if (!response.ok) throw new Error(t('getHistoryFailed'));
 
         const data = await response.json();
         const messages = data.messages || [];
@@ -1029,7 +1105,7 @@ async function loadSession(sessionId) {
         // 渲染对话历史
         if (messages.length === 0) {
             // 如果没有对话历史，显示会话信息
-            addMessageWithoutSave('assistant', `已切换到会话: ${session ? session.name : sessionId}`);
+            addMessageWithoutSave('assistant', `${t('switchedToSession')}: ${session ? session.name : sessionId}`);
         } else {
             // 渲染所有历史消息（按服务端存储的顺序）
             renderHistoryMessages(messages);
@@ -1077,7 +1153,7 @@ async function loadSession(sessionId) {
 
     } catch (error) {
         removeTypingIndicator();
-        addMessage('assistant', `加载会话失败: ${error.message}`, 'error');
+        addMessage('assistant', `${t('loadSessionFailed')}: ${error.message}`, 'error');
         console.error('加载会话失败:', error);
     }
 }
@@ -1215,7 +1291,7 @@ function addHistoryCommandLine(cmd, timestamp, existingContainer) {
     line.className = 'progress-line command-line';
     line.innerHTML = `
         <span class="progress-time">${time}</span>
-        <span class="command-label">正在运行:</span>
+        <span class="command-label">${t('runningCmd')}</span>
         <code class="command-text">${escapeHtml(cmd)}</code>
     `;
     content.appendChild(line);
@@ -1232,7 +1308,7 @@ function addHistoryFileNotification(fileInfo) {
     notificationEl.innerHTML = `
         <div class="message-avatar">📁</div>
         <div class="message-content file-content">
-            <div class="file-header">完整结果已保存</div>
+            <div class="file-header">${t('fullResultSaved')}</div>
             <div class="file-path">${escapeHtml(fileInfo)}</div>
         </div>
     `;
@@ -1251,7 +1327,7 @@ function addHistoryInputRequest(prompt) {
         <div class="message-content">
             <p>${escapeHtml(prompt)}</p>
             <div class="input-form disabled">
-                <span class="history-label">(已处理)</span>
+                <span class="history-label">${t('processed')}</span>
             </div>
         </div>
     `;
@@ -1270,7 +1346,7 @@ function addHistoryConfirmRequest(message) {
         <div class="message-content">
             <p>${escapeHtml(message)}</p>
             <div class="confirm-buttons disabled">
-                <span class="history-label">(已处理)</span>
+                <span class="history-label">${t('processed')}</span>
             </div>
         </div>
     `;
@@ -1315,7 +1391,7 @@ async function deleteSession(sessionId) {
         });
 
         if (!response.ok) {
-            throw new Error('删除会话失败');
+            throw new Error(t('deleteSessionFailed'));
         }
 
         // 从本地状态中删除
@@ -1336,7 +1412,7 @@ async function deleteSession(sessionId) {
 
     } catch (error) {
         console.error('删除会话失败:', error);
-        alert('删除会话失败: ' + error.message);
+        alert(t('deleteSessionFailed') + ': ' + error.message);
     }
 }
 
@@ -1364,9 +1440,9 @@ function formatTime(isoString) {
     const now = new Date();
     const diff = now - date;
 
-    if (diff < 60000) return '刚刚';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`;
+    if (diff < 60000) return t('justNow');
+    if (diff < 3600000) return `${Math.floor(diff / 60000)} ${t('minutesAgo')}`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)} ${t('hoursAgo')}`;
     return date.toLocaleDateString();
 }
 
@@ -1404,7 +1480,7 @@ function stopTask() {
 
     // 更新 UI
     removeTypingIndicator();
-    addMessage('assistant', '任务已停止');
+    addMessage('assistant', t('taskStopped'));
     updateSessionStatus(state.currentSessionId, 'idle');
     showSendButton();
 }
