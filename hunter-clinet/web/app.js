@@ -1,10 +1,15 @@
 /**
  * Hunter Web Client
  * 自动化渗透测试系统 - Web 客户端
- * Version: 2.3.2 - 修复最终回复渲染顺序
+ * Version: 3.0.0 - 服务端持久化存储
+ *
+ * 变更：
+ * - 移除 localStorage 存储，所有数据从服务端获取
+ * - 会话列表和消息历史由服务端 SQLite 持久化
+ * - 客户端只负责渲染，不存储数据
  */
 
-console.log('[Hunter] 客户端版本: 2.3.2 - 修复最终回复渲染顺序');
+console.log('[Hunter] 客户端版本: 3.0.0 - 服务端持久化存储');
 
 // 国际化文本
 const i18n = {
@@ -109,11 +114,9 @@ const state = {
     connected: false,
     currentSessionId: null,  // 当前显示的会话 ID
     websockets: {},          // 每个会话的 WebSocket 连接 { session_id: WebSocket }
-    sessions: [],            // 会话列表
-    messages: [],
-    sessionMessages: {},     // 存储每个会话的消息历史 { session_id: [messages] }
+    sessions: [],            // 会话列表（从服务端获取）
     pendingInteractions: {}, // 存储每个会话的待处理交互 { session_id: { type, data, timestamp } }
-    sessionProgress: {},     // 存储每个会话的进度消息 { session_id: [messages] }
+    sessionProgress: {},     // 存储每个会话的进度消息（运行时缓存）{ session_id: [messages] }
     language: 'zh'  // 固定中文
 };
 
@@ -132,8 +135,6 @@ const elements = {
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
-    loadSessions();
-    loadSessionMessages();
     autoResizeTextarea();
     updateUILanguage();
     connectServer();
@@ -199,6 +200,8 @@ async function connectServer() {
         if (response.ok) {
             state.connected = true;
             updateServerStatus('online');
+            // 连接成功后，从服务端加载会话列表
+            await loadSessionsFromServer();
         } else {
             throw new Error('Server error');
         }
@@ -272,16 +275,14 @@ async function sendMessage() {
 
             console.log(`[发送消息] 新会话ID: ${sessionId}`);
 
-            // 添加到会话列表
-            addSession({
+            // 添加到会话列表（本地状态）
+            state.sessions.unshift({
                 id: sessionId,
                 name: message.substring(0, 30),
                 status: 'idle',
                 created_at: new Date().toISOString()
             });
-
-            // 初始化会话消息历史
-            state.sessionMessages[sessionId] = [];
+            renderSessionList();
 
             // 更新当前会话 ID
             state.currentSessionId = sessionId;
@@ -300,8 +301,8 @@ async function sendMessage() {
             await connectWebSocket(sessionId);
         }
 
-        // 保存消息到当前会话
-        saveMessageToSession(sessionId, 'user', message);
+        // 保存消息到当前会话（服务端已自动保存，这里不需要本地保存）
+        // saveMessageToSession(sessionId, 'user', message);
 
         // 通过 WebSocket 发送消息
         const currentWs = state.websockets[sessionId];
@@ -665,10 +666,7 @@ function addMessage(role, content, type = '') {
         container.appendChild(messageEl);
     }
 
-    // 保存消息到当前会话
-    if (state.currentSessionId) {
-        saveMessageToSession(state.currentSessionId, role, content);
-    }
+    // 消息由服务端自动保存，客户端不再本地存储
 
     scrollToBottom();
 }
@@ -680,7 +678,7 @@ function addInputRequest(prompt, sessionId) {
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant input-required';
     messageEl.innerHTML = `
-        <div class="message-avatar">🎯</div>
+        <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
         <div class="message-content">
             <p>${escapeHtml(prompt)}</p>
             <div class="input-form">
@@ -764,7 +762,7 @@ function addConfirmRequest(message, task, sessionId) {
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant confirm-required';
     messageEl.innerHTML = `
-        <div class="message-avatar">🎯</div>
+        <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
         <div class="message-content">
             <p>${escapeHtml(message)}${escapeHtml(taskInfo)}</p>
             <div class="confirm-buttons">
@@ -881,10 +879,7 @@ function addFinalMessage(role, content, type = '') {
     // 始终添加到容器末尾
     container.appendChild(messageEl);
 
-    // 保存消息到当前会话
-    if (state.currentSessionId) {
-        saveMessageToSession(state.currentSessionId, role, content);
-    }
+    // 消息由服务端自动保存，客户端不再本地存储
 
     scrollToBottom();
 }
@@ -897,7 +892,7 @@ function addTypingIndicator() {
     const indicator = document.createElement('div');
     indicator.className = 'message assistant typing';
     indicator.innerHTML = `
-        <div class="message-avatar">🎯</div>
+        <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
         <div class="typing-indicator">
             <span></span>
             <span></span>
@@ -945,18 +940,27 @@ function newChat() {
     renderSessionList();
 }
 
-// 会话管理
-function addSession(session) {
-    state.sessions.unshift(session);
-    saveSessions();
-    renderSessionList();
+// 会话管理 - 从服务端获取数据
+
+// 从服务端加载会话列表
+async function loadSessionsFromServer() {
+    try {
+        const response = await fetch(`http://${state.serverUrl}/sessions`);
+        if (!response.ok) throw new Error('获取会话列表失败');
+
+        const sessions = await response.json();
+        state.sessions = sessions;
+        renderSessionList();
+        console.log(`[会话] 从服务端加载了 ${sessions.length} 个会话`);
+    } catch (error) {
+        console.error('加载会话列表失败:', error);
+    }
 }
 
 function updateSessionStatus(sessionId, status) {
     const session = state.sessions.find(s => s.id === sessionId);
     if (session) {
         session.status = status;
-        saveSessions();
         renderSessionList();
     }
 }
@@ -1013,7 +1017,7 @@ async function loadSession(sessionId) {
     addTypingIndicator();
 
     try {
-        // 从服务器获取会话的对话历史
+        // 从服务器获取会话的所有消息
         const response = await fetch(`http://${state.serverUrl}/session/${sessionId}/messages`);
         if (!response.ok) throw new Error('获取对话历史失败');
 
@@ -1025,19 +1029,16 @@ async function loadSession(sessionId) {
         // 渲染对话历史
         if (messages.length === 0) {
             // 如果没有对话历史，显示会话信息
-            addMessageWithoutSave('assistant', `已切换到会话: ${session.name}`);
+            addMessageWithoutSave('assistant', `已切换到会话: ${session ? session.name : sessionId}`);
         } else {
-            // 渲染所有历史消息
-            messages.forEach(msg => {
-                const role = msg.role === 'user' ? 'user' : 'assistant';
-                addMessageWithoutSave(role, msg.content);
-            });
+            // 渲染所有历史消息（按服务端存储的顺序）
+            renderHistoryMessages(messages);
         }
 
-        // 恢复缓存的进度消息
+        // 恢复缓存的进度消息（运行时缓存，用于当前正在执行的任务）
         const cachedProgress = state.sessionProgress[sessionId] || [];
         if (cachedProgress.length > 0) {
-            console.log(`[加载会话] 恢复 ${cachedProgress.length} 条进度消息`);
+            console.log(`[加载会话] 恢复 ${cachedProgress.length} 条运行时进度消息`);
             cachedProgress.forEach(p => {
                 handleProgressMessage(p.message, p.timestamp);
             });
@@ -1060,7 +1061,8 @@ async function loadSession(sessionId) {
         }
 
         // 根据会话状态更新按钮
-        if (session && (session.status === 'running' || session.status === 'need_input' || session.status === 'need_confirm')) {
+        const sessionStatus = data.session_status || (session ? session.status : 'idle');
+        if (sessionStatus === 'running' || sessionStatus === 'need_input' || sessionStatus === 'need_confirm') {
             // 如果有待处理交互，不显示 typing indicator
             if (!pendingInteraction) {
                 addTypingIndicator();
@@ -1078,6 +1080,202 @@ async function loadSession(sessionId) {
         addMessage('assistant', `加载会话失败: ${error.message}`, 'error');
         console.error('加载会话失败:', error);
     }
+}
+
+// 渲染历史消息（根据消息类型分别处理）
+function renderHistoryMessages(messages) {
+    let currentProgressContainer = null;
+
+    messages.forEach(msg => {
+        const msgType = msg.msg_type;
+        const content = msg.content;
+
+        switch (msgType) {
+            case 'user':
+                // 用户消息
+                currentProgressContainer = null;
+                addMessageWithoutSave('user', content);
+                break;
+
+            case 'assistant':
+                // 助手最终回复
+                currentProgressContainer = null;
+                addMessageWithoutSave('assistant', content);
+                break;
+
+            case 'progress':
+                // 进度消息 - 合并到进度容器
+                currentProgressContainer = addHistoryProgressLine(content, msg.created_at, currentProgressContainer);
+                break;
+
+            case 'command':
+                // 命令消息
+                currentProgressContainer = addHistoryCommandLine(content, msg.created_at, currentProgressContainer);
+                break;
+
+            case 'reply':
+                // 中间回复
+                currentProgressContainer = null;
+                addMessageWithoutSave('assistant', content);
+                break;
+
+            case 'file':
+                // 文件通知
+                addHistoryFileNotification(content);
+                break;
+
+            case 'error':
+                // 错误消息
+                currentProgressContainer = null;
+                addMessageWithoutSave('assistant', content, 'error');
+                break;
+
+            case 'input_request':
+                // 输入请求（历史记录，已处理）
+                addHistoryInputRequest(content);
+                break;
+
+            case 'input_response':
+                // 用户输入响应
+                addMessageWithoutSave('user', content);
+                break;
+
+            case 'confirm_request':
+                // 确认请求（历史记录，已处理）
+                addHistoryConfirmRequest(content);
+                break;
+
+            case 'confirm_response':
+                // 用户确认响应
+                addMessageWithoutSave('user', content);
+                break;
+
+            case 'system':
+                // 系统消息
+                currentProgressContainer = null;
+                addMessageWithoutSave('assistant', content, 'system');
+                break;
+
+            default:
+                // 未知类型，作为普通消息处理
+                console.log(`[渲染] 未知消息类型: ${msgType}`);
+                break;
+        }
+    });
+}
+
+// 添加历史进度行
+function addHistoryProgressLine(message, timestamp, existingContainer) {
+    const container = elements.chatMessages();
+    let progressMsg = existingContainer;
+
+    if (!progressMsg) {
+        progressMsg = document.createElement('div');
+        progressMsg.className = 'message assistant progress';
+        progressMsg.innerHTML = `
+            <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
+            <div class="message-content"></div>
+        `;
+        container.appendChild(progressMsg);
+    }
+
+    const content = progressMsg.querySelector('.message-content');
+    const time = timestamp ? new Date(timestamp).toLocaleTimeString() : '';
+
+    const line = document.createElement('div');
+    line.className = 'progress-line';
+    line.innerHTML = `
+        <span class="progress-time">${time}</span>
+        <span class="progress-text">${escapeHtml(message)}</span>
+    `;
+    content.appendChild(line);
+
+    return progressMsg;
+}
+
+// 添加历史命令行
+function addHistoryCommandLine(cmd, timestamp, existingContainer) {
+    const container = elements.chatMessages();
+    let progressMsg = existingContainer;
+
+    if (!progressMsg) {
+        progressMsg = document.createElement('div');
+        progressMsg.className = 'message assistant progress';
+        progressMsg.innerHTML = `
+            <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
+            <div class="message-content"></div>
+        `;
+        container.appendChild(progressMsg);
+    }
+
+    const content = progressMsg.querySelector('.message-content');
+    const time = timestamp ? new Date(timestamp).toLocaleTimeString() : '';
+
+    const line = document.createElement('div');
+    line.className = 'progress-line command-line';
+    line.innerHTML = `
+        <span class="progress-time">${time}</span>
+        <span class="command-label">正在运行:</span>
+        <code class="command-text">${escapeHtml(cmd)}</code>
+    `;
+    content.appendChild(line);
+
+    return progressMsg;
+}
+
+// 添加历史文件通知
+function addHistoryFileNotification(fileInfo) {
+    const container = elements.chatMessages();
+
+    const notificationEl = document.createElement('div');
+    notificationEl.className = 'message assistant file-notification';
+    notificationEl.innerHTML = `
+        <div class="message-avatar">📁</div>
+        <div class="message-content file-content">
+            <div class="file-header">完整结果已保存</div>
+            <div class="file-path">${escapeHtml(fileInfo)}</div>
+        </div>
+    `;
+
+    container.appendChild(notificationEl);
+}
+
+// 添加历史输入请求（已处理的）
+function addHistoryInputRequest(prompt) {
+    const container = elements.chatMessages();
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'message assistant input-required history';
+    messageEl.innerHTML = `
+        <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
+        <div class="message-content">
+            <p>${escapeHtml(prompt)}</p>
+            <div class="input-form disabled">
+                <span class="history-label">(已处理)</span>
+            </div>
+        </div>
+    `;
+
+    container.appendChild(messageEl);
+}
+
+// 添加历史确认请求（已处理的）
+function addHistoryConfirmRequest(message) {
+    const container = elements.chatMessages();
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'message assistant confirm-required history';
+    messageEl.innerHTML = `
+        <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
+        <div class="message-content">
+            <p>${escapeHtml(message)}</p>
+            <div class="confirm-buttons disabled">
+                <span class="history-label">(已处理)</span>
+            </div>
+        </div>
+    `;
+
+    container.appendChild(messageEl);
 }
 
 // 添加消息但不保存（用于渲染历史消息）
@@ -1098,40 +1296,8 @@ function addMessageWithoutSave(role, content, type = '') {
     scrollToBottom();
 }
 
-// 保存消息到会话历史
-function saveMessageToSession(sessionId, role, content) {
-    if (!state.sessionMessages[sessionId]) {
-        state.sessionMessages[sessionId] = [];
-    }
-    state.sessionMessages[sessionId].push({ role, content, timestamp: new Date().toISOString() });
-    saveSessionMessages();
-}
-
-function saveSessionMessages() {
-    localStorage.setItem('hunter_session_messages', JSON.stringify(state.sessionMessages));
-}
-
-function loadSessionMessages() {
-    const saved = localStorage.getItem('hunter_session_messages');
-    if (saved) {
-        state.sessionMessages = JSON.parse(saved);
-    }
-}
-
-function saveSessions() {
-    localStorage.setItem('hunter_sessions', JSON.stringify(state.sessions));
-}
-
-function loadSessions() {
-    const saved = localStorage.getItem('hunter_sessions');
-    if (saved) {
-        state.sessions = JSON.parse(saved);
-        renderSessionList();
-    }
-}
-
-// 删除会话
-function deleteSession(sessionId) {
+// 删除会话（调用服务端 API）
+async function deleteSession(sessionId) {
     // 如果该会话有 WebSocket 连接，先关闭
     const ws = state.websockets[sessionId];
     if (ws) {
@@ -1142,22 +1308,36 @@ function deleteSession(sessionId) {
         delete state.websockets[sessionId];
     }
 
-    // 从会话列表中删除
-    state.sessions = state.sessions.filter(s => s.id !== sessionId);
-    saveSessions();
+    try {
+        // 调用服务端删除会话
+        const response = await fetch(`http://${state.serverUrl}/session/${sessionId}`, {
+            method: 'DELETE'
+        });
 
-    // 删除会话消息历史
-    delete state.sessionMessages[sessionId];
-    saveSessionMessages();
+        if (!response.ok) {
+            throw new Error('删除会话失败');
+        }
 
-    // 如果删除的是当前会话，切换到新建聊天
-    if (state.currentSessionId === sessionId) {
-        newChat();
-    } else {
-        renderSessionList();
+        // 从本地状态中删除
+        state.sessions = state.sessions.filter(s => s.id !== sessionId);
+
+        // 清理运行时缓存
+        delete state.pendingInteractions[sessionId];
+        delete state.sessionProgress[sessionId];
+
+        // 如果删除的是当前会话，切换到新建聊天
+        if (state.currentSessionId === sessionId) {
+            newChat();
+        } else {
+            renderSessionList();
+        }
+
+        console.log(`[删除会话] 已删除会话: ${sessionId}`);
+
+    } catch (error) {
+        console.error('删除会话失败:', error);
+        alert('删除会话失败: ' + error.message);
     }
-
-    console.log(`[删除会话] 已删除会话: ${sessionId}`);
 }
 
 // 工具函数
