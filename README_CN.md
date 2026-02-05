@@ -31,8 +31,10 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 配置 .env 
 cp .env.example .env
+
+# 请按需配置 .env
+# 可以配置语言，默认是英文，可以改为中文。
 nano .env
 
 python server/app.py
@@ -40,11 +42,11 @@ python server/app.py
 
 ## 平台支持
 
-| 组件 | 支持情况 |
-|------|---------|
-| 服务端 | Kali Linux ✅ / Linux ⚠️ / Windows ⚠️ |
-| 客户端 | Windows ✅ Mac ✅ Linux ✅ |
-| 工具自动化 | Kali 最佳体验 ⭐⭐⭐⭐⭐ |
+| 组件 | 支持情况 | 语言 |
+|------|---------|---------|
+| 服务端 | Kali Linux ✅ / Linux ⚠️ / Windows ⚠️ | 中文/英文 |
+| 客户端 | Windows ✅ Mac ✅ Linux ✅ | 中文/英文 |
+| 工具自动化 | Kali 最佳体验 ⭐⭐⭐⭐⭐ |  |
 
 
 ## 配置服务端（Kali Linux上）
@@ -59,6 +61,8 @@ python server/app.py
 ### 1. 安装依赖
 
 ```bash
+#克隆项目
+git clone https://github.com/Pillow-mycode/Hunter.git
 #进入项目
 cd Hunter/hunter-server
 
@@ -75,11 +79,19 @@ pip install -r requirements.txt
 在Hunter/hunter-server目录下创建 `.env` 文件并进入，粘贴并配置以下内容（注意：这里有四部分，可以仅配置第一个默认部分其他为空即可，如需要单独为不不同智能体选择不同模型直接填入信息即可，默认优先级：专门配置 > 默认配置）：
 
 ```env
-# ==================== 默认配置 ====================
+# ==================== 默认配置 （快速启动只需填写这一部分即可）====================
+# Default Configuration (Only fill this section for quick start)
 # 当各智能体的专用配置为空时，使用这些默认值
+# These default values are used when agent-specific configurations are empty
 DEFAULT_API_KEY=your-api-key-here
 DEFAULT_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 DEFAULT_MODEL=qwen3-max
+
+# ==================== 语言配置 ====================
+# 设置系统语言
+# zh = 中文 (Chinese), en = English
+# 此设置会影响大模型的回复语言和系统消息
+LANGUAGE=en
 
 # ==================== 武器大师配置 ====================
 # 负责工具选择和命令执行
@@ -98,6 +110,7 @@ HAWKEYE_MODEL=
 LEADER_API_KEY=
 LEADER_BASE_URL=
 LEADER_MODEL=
+
 ```
 
 #### 配置说明
@@ -292,7 +305,7 @@ hunter-server/
 将开发的工具包放入上面的目录的tools目录下，然后将工具的名称与简介按 "tool_name:description;" 填入 tools_readme 目录下的 all-tools.txt 中，最后写一个详细的 tool_name.md 文档放入 tools_readme 目录下即可。可以看项目中 brute_force_attack 的例子。
 
 #### 2、工具扩展指南
-                                                            
+
   工具分类说明         
   ```
   ┌──────────────┬────────────┬─────────────────────────────────────────┐
@@ -305,7 +318,7 @@ hunter-server/
   │ 外部工具      │ [EXTERNAL] │ 优秀的第三方工具，需额外安装               │
   └──────────────┴────────────┴─────────────────────────────────────────┘
   ```
-  ---
+---
   **添加自定义工具 [CUSTOM]**
 
   适用于：你自己编写的 Python/Bash 脚本工具
@@ -324,7 +337,7 @@ hunter-server/
 
   **注意**： 武器大师使用自定义工具前会强制阅读文档，所以文档质量直接影响工具的使用效果。
 
-  ---
+---
   **添加外部工具 [EXTERNAL]**
 
   适用于：优秀但 Kali 默认不自带的第三方工具
@@ -342,7 +355,7 @@ hunter-server/
 
   工作流程： 武器大师使用外部工具时会自动检查是否已安装，未安装则自动执行安装命令。
 
-  ---
+---
   文件结构速查
 ```
   hunter-server/
@@ -356,7 +369,7 @@ hunter-server/
   └── agent/smart_brain/
       └── attack_tool_master.py    # 外部工具安装命令（添加EXTERNAL时需改）
 ```
-  ---
+---
   示例：请看tools中的brute_force_attack示例工具
 
 #### 3、关于服务端部署到windows的做法

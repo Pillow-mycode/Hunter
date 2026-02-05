@@ -82,6 +82,12 @@ DEFAULT_API_KEY=your-api-key-here
 DEFAULT_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 DEFAULT_MODEL=qwen3-max
 
+# ==================== language configuration ====================
+# Set system language
+# zh = 中文 (Chinese), en = English
+# This setting affects LLM response language and system messages
+LANGUAGE=en
+
 # ==================== Weapon Master Configuration ====================
 # Responsible for tool selection and command execution
 ATTACKER_API_KEY=
@@ -170,7 +176,7 @@ After confirming the client host is on the same network as Kali, get the Kali IP
 
 Then enter this address in the client:
 
-![clientphoto](./hunter-server/photo/clientphoto.png)
+![clientphoto](./hunter-server/photo/clientphoto-en.png)
 
 You're ready to start testing!
 
@@ -310,7 +316,7 @@ Place your developed tool package in the tools directory mentioned above, then a
   │ Tools        │            │ requires additional installation        │
   └──────────────┴────────────┴─────────────────────────────────────────┘
   ```
-  ---
+---
   **Adding Custom Tools [CUSTOM]**
 
   Applicable to: Python/Bash scripts you've written yourself
@@ -329,7 +335,7 @@ Place your developed tool package in the tools directory mentioned above, then a
 
   **Note**: Weapon Master will forcibly read documentation before using custom tools, so documentation quality directly affects tool usage effectiveness.
 
-  ---
+---
   **Adding External Tools [EXTERNAL]**
 
   Applicable to: Excellent tools not included by default in Kali
@@ -347,7 +353,7 @@ Place your developed tool package in the tools directory mentioned above, then a
 
   Workflow: Weapon Master automatically checks if external tools are installed before use; if not, it automatically executes the installation command.
 
-  ---
+---
   File Structure Quick Reference
 ```
   hunter-server/
@@ -362,7 +368,7 @@ Place your developed tool package in the tools directory mentioned above, then a
       └── attack_tool_master.py    # External tool install commands
                                    # (modify when adding EXTERNAL)
 ```
-  ---
+---
   Example: See the brute_force_attack example tool in tools
 
 #### 3. Deploying Server on Windows
