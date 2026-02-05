@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 
 # 确保在导入 OpenAI 之前加载环境变量
-load_dotenv()
+load_dotenv(override=True)
 
 from openai import OpenAI
 
@@ -141,7 +141,7 @@ Always return results in JSON format.
 
 
 class AttackLeaderConfig:
-    def __init__(self, prompt=None):
+    def __init__(self, prompt=None, language=None):
         # 在实例化时读取环境变量，确保 .env 已加载
         self.leader_client = OpenAI(
             api_key=os.getenv("LEADER_API_KEY") or os.getenv("DEFAULT_API_KEY"),
@@ -149,6 +149,10 @@ class AttackLeaderConfig:
         )
         self.model = os.getenv("LEADER_MODEL") or os.getenv("DEFAULT_MODEL")
 
+        # 语言配置：优先使用参数，其次使用环境变量，默认中文
+        self.language = language or os.getenv("LANGUAGE", "zh").lower()
+
         if prompt is None:
-            prompt = SYSTEM_PROMPT_ZH
+            # 根据语言选择系统提示词
+            prompt = SYSTEM_PROMPT_EN if self.language == "en" else SYSTEM_PROMPT_ZH
         self.system_prompt = prompt

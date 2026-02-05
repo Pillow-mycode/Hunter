@@ -1,7 +1,7 @@
 import os
 import json
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 from agent.pojo.leader_config import AttackLeaderConfig
 from agent.smart_brain.attack_leader import AttackLeader

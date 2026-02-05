@@ -5,7 +5,7 @@ import time
 import errno
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 
 from agent.pojo.hawkeye_config import HawkeyeConfig
