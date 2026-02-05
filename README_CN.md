@@ -35,6 +35,7 @@ cp .env.example .env
 
 # 请按需配置 .env
 # 可以配置语言，默认是英文，可以改为中文。
+# 通过将LANGUAGE=en 改为LANGUAGE=zh 切换为中文
 nano .env
 
 python server/app.py
