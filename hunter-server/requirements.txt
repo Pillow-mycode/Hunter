@@ -1,6 +1,7 @@
 # Hunter 核心依赖
 openai>=1.0.0
 python-dotenv>=1.0.0
+pyte>=0.8.0
 
 # 服务端依赖 (Kali)
 fastapi>=0.109.0

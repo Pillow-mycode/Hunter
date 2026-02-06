@@ -4,6 +4,8 @@ import threading
 import time
 import errno
 
+import pyte
+
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
@@ -41,6 +43,7 @@ class TimeCountThread(threading.Thread):
             if self.count >= self.current_duration:
                 self.count = 0
                 result = self.result_getter() if self.result_getter else ""
+                print(f"[鹰眼] 定时触发检查 (间隔{self.current_duration}秒, 累计等待{self.total_wait_time}秒, 输出长度{len(result)})")
                 needs_input = check_history(result)
 
                 if not needs_input:
@@ -125,6 +128,34 @@ active_process = {
 output_lock = threading.Lock()
 
 
+def _clean_terminal_output(text: str) -> str:
+    """
+    使用 pyte 虚拟终端模拟器清理 PTY 原始输出。
+    像真实终端一样处理 ANSI 转义序列、\\r 回车覆盖、光标控制等，
+    返回终端屏幕上实际可见的内容。通用方案，不依赖特定工具的输出格式。
+    """
+    if not text:
+        return text
+
+    screen = pyte.HistoryScreen(250, 50, history=100000)
+    stream = pyte.Stream(screen)
+    stream.feed(text)
+
+    # 提取历史（滚出屏幕的行）+ 当前屏幕内容
+    lines = []
+    for h in screen.history.top:
+        chars = ''.join(c.data for c in h.values()).rstrip()
+        lines.append(chars)
+    for l in screen.display:
+        lines.append(l.rstrip())
+
+    # 去掉尾部空行，保留中间空行
+    while lines and not lines[-1]:
+        lines.pop()
+
+    return '\n'.join(lines)
+
+
 # =========================
 # 鹰眼判断
 # =========================
@@ -138,14 +169,26 @@ def check_history(result: str) -> bool:
     global active_process
 
     if active_process["needs_interaction"]:
+        print("[鹰眼] 已标记需要交互，跳过检查")
         return True
 
+    # 清理 ANSI 转义序列，避免干扰 LLM 判断
+    result = _clean_terminal_output(result)
+
     max_len = 1000
+    truncated = False
     if len(result) > max_len:
         result = result[:500] + "\n(中间省略...)\n" + result[-500:]
+        truncated = True
 
-    if hawkeye.check(result):
-        print("需要输入")
+    print(f"[鹰眼] 开始检查，输出长度: {len(result)}字符{' (已截断)' if truncated else ''}")
+    print(f"[鹰眼] 输出末尾: {repr(result[-200:]) if result else '(空)'}")
+
+    check_result = hawkeye.check(result)
+    print(f"[鹰眼] 判断结果: {'需要交互' if check_result else '无需交互'}")
+
+    if check_result:
+        print("[鹰眼] 需要输入")
         active_process["needs_interaction"] = True
         return True
 
@@ -183,14 +226,14 @@ def sys_shell(bash: str):
                 # 检查是否需要交互
                 if active_process["needs_interaction"]:
                     _save_active(process, master_fd, output, bash, timer, "pty")
-                    return output
+                    return _clean_terminal_output(output)
 
                 # 检查是否超时，超时后触发回调（保存进程状态，让武器大师处理）
                 if timer.is_timeout:
                     print("[超时] 命令执行超时，触发回调")
                     active_process["needs_interaction"] = True
                     _save_active(process, master_fd, output, bash, timer, "pty")
-                    return output
+                    return _clean_terminal_output(output)
 
                 if process.poll() is not None:
                     break
@@ -208,7 +251,7 @@ def sys_shell(bash: str):
                         if not data:
                             break
 
-                        decoded = data.decode(errors="ignore")
+                        decoded = data.decode('utf-8', errors='replace')
                         with output_lock:
                             output += decoded
                         # 实时打印到控制台
@@ -224,14 +267,14 @@ def sys_shell(bash: str):
                 # 检查是否需要交互
                 if active_process["needs_interaction"]:
                     _save_active(process, None, output, bash, timer, "winpty")
-                    return output
+                    return _clean_terminal_output(output)
 
                 # 检查是否超时，超时后触发回调
                 if timer.is_timeout:
                     print("[超时] 命令执行超时，触发回调")
                     active_process["needs_interaction"] = True
                     _save_active(process, None, output, bash, timer, "winpty")
-                    return output
+                    return _clean_terminal_output(output)
 
                 data = process.read()
                 if data:
@@ -242,7 +285,7 @@ def sys_shell(bash: str):
                     write_to_logs(data)
                     timer.reset()
 
-        return output
+        return _clean_terminal_output(output)
 
     finally:
         timer.stop()
@@ -295,7 +338,7 @@ def write_input_to_active_process(input_text: str):
             while True:
                 if active_process["needs_interaction"]:
                     active_process["output_history"] = output
-                    return output
+                    return _clean_terminal_output(output)
 
                 if process.poll() is not None:
                     break
@@ -324,7 +367,7 @@ def write_input_to_active_process(input_text: str):
             while process.isalive():
                 if active_process["needs_interaction"]:
                     active_process["output_history"] = output
-                    return output
+                    return _clean_terminal_output(output)
 
                 data = process.read()
                 if data:
@@ -336,7 +379,7 @@ def write_input_to_active_process(input_text: str):
                     timer.reset()
 
         clear_active_process()
-        return output
+        return _clean_terminal_output(output)
 
     finally:
         timer.stop()

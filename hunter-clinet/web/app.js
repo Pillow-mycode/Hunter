@@ -328,6 +328,9 @@ async function sendMessage() {
     const welcome = document.querySelector('.welcome-message');
     if (welcome) welcome.remove();
 
+    // 移除旧的活跃进度容器标记，为新消息准备
+    deactivateProgressContainers();
+
     // 添加用户消息
     addMessage('user', message);
 
@@ -491,6 +494,10 @@ function handleServerMessage(sessionId, data) {
             // 清除该会话的待处理交互和进度
             delete state.pendingInteractions[sessionId];
             state.sessionProgress[sessionId] = [];
+            // 只在当前会话时，移除旧的活跃进度容器标记，为新任务准备
+            if (isCurrentSession) {
+                deactivateProgressContainers();
+            }
             break;
 
         case 'progress':
@@ -646,13 +653,12 @@ function addFileNotification(fileInfo) {
 // 添加命令行显示
 function addCommandLine(cmd, timestamp) {
     const container = elements.chatMessages();
-    // 查找最后一个进度消息容器
-    const progressMsgs = container.querySelectorAll('.message.progress');
-    let progressMsg = progressMsgs.length > 0 ? progressMsgs[progressMsgs.length - 1] : null;
+    // 只查找当前活跃的进度消息容器
+    let progressMsg = container.querySelector('.message.progress.active');
 
     if (!progressMsg) {
         progressMsg = document.createElement('div');
-        progressMsg.className = 'message assistant progress';
+        progressMsg.className = 'message assistant progress active';
         progressMsg.innerHTML = `
             <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
             <div class="message-content"></div>
@@ -683,13 +689,12 @@ function addCommandLine(cmd, timestamp) {
 // 添加进度行
 function addProgressLine(message, timestamp) {
     const container = elements.chatMessages();
-    // 查找最后一个进度消息容器
-    const progressMsgs = container.querySelectorAll('.message.progress');
-    let progressMsg = progressMsgs.length > 0 ? progressMsgs[progressMsgs.length - 1] : null;
+    // 只查找当前活跃的进度消息容器
+    let progressMsg = container.querySelector('.message.progress.active');
 
     if (!progressMsg) {
         progressMsg = document.createElement('div');
-        progressMsg.className = 'message assistant progress';
+        progressMsg.className = 'message assistant progress active';
         progressMsg.innerHTML = `
             <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
             <div class="message-content"></div>
@@ -874,6 +879,8 @@ function confirmAction(confirmed, btn, sessionId) {
 
     addMessage('user', confirmed ? t('confirm') : t('cancel'));
     if (confirmed) {
+        // 将旧的进度容器标记为非活跃，确保后续进度消息在确认框下方显示
+        deactivateProgressContainers();
         addTypingIndicator();
     }
 }
@@ -1420,6 +1427,13 @@ async function deleteSession(sessionId) {
 function scrollToBottom() {
     const container = elements.chatMessages();
     container.scrollTop = container.scrollHeight;
+}
+
+// 移除所有进度容器的活跃标记
+function deactivateProgressContainers() {
+    const container = elements.chatMessages();
+    const activeContainers = container.querySelectorAll('.message.progress.active');
+    activeContainers.forEach(el => el.classList.remove('active'));
 }
 
 function escapeHtml(text) {

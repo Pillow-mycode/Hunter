@@ -34,7 +34,7 @@
 [KALI]sqlmap:自动化SQL注入检测与利用工具;
 [KALI]wpscan:WordPress漏洞扫描工具;
 [KALI]dirb:Web目录与文件爆破工具;
-[EXTERNAL]dirsearch:高效Web路径扫描工具，支持多线程和递归扫描;
+[KALI]dirsearch:高效Web路径扫描工具，支持多线程和递归扫描;
 [KALI]gobuster:目录、DNS与虚拟主机爆破工具;
 [KALI]ffuf:高速Web模糊测试与爆破工具;
 [KALI]wfuzz:Web应用模糊测试工具;

@@ -183,7 +183,6 @@ class SessionManager:
                     "timestamp": datetime.now().isoformat(),
                     "data": data
                 })
-                print(f"[WebSocket] 发送消息: {msg_type} -> {session_id}")
             except Exception as e:
                 print(f"[WebSocket] 发送消息失败: {e}")
 

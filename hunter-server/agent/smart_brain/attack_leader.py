@@ -229,7 +229,7 @@ class AttackLeader:
         # 回调函数
         self._on_progress: Optional[Callable] = None
         self.on_need_confirm: Optional[Callable] = None
-        self.on_need_input: Optional[Callable] = None
+        self._on_need_input: Optional[Callable] = None
 
     def _msg(self, key: str, **kwargs) -> str:
         """获取本地化消息"""
@@ -246,6 +246,16 @@ class AttackLeader:
         """设置进度回调，同时传递给武器大师"""
         self._on_progress = callback
         self.weapon_master.on_progress = callback
+
+    @property
+    def on_need_input(self) -> Optional[Callable]:
+        return self._on_need_input
+
+    @on_need_input.setter
+    def on_need_input(self, callback: Optional[Callable]):
+        """设置输入回调，同时传递给武器大师"""
+        self._on_need_input = callback
+        self.weapon_master.on_need_input = callback
 
     def get_response(self) -> str:
         """获取 LLM 响应，带重试机制"""
@@ -560,8 +570,8 @@ class AttackLeader:
 
     def wait_for_input(self, prompt: str) -> Optional[str]:
         """等待用户输入"""
-        if self.on_need_input:
-            return self.on_need_input(prompt)
+        if self._on_need_input:
+            return self._on_need_input(prompt)
 
         # CLI 模式
         print(f"\n{'='*50}")

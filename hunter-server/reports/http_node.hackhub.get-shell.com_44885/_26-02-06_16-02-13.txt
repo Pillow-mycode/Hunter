@@ -1,0 +1,25 @@
+# Dirsearch started Fri Feb  6 16:10:09 2026 as: /home/kali/pillow/git/Hunter/hunter-server/venv/bin/dirsearch -u http://node.hackhub.get-shell.com:44885 -e php,html,js,txt -r -R 2 --full-url
+
+301   169B   http://node.hackhub.get-shell.com:44885/assets    -> REDIRECTS TO: http://node.hackhub.get-shell.com/assets/
+403   555B   http://node.hackhub.get-shell.com:44885/assets/
+200     2KB  http://node.hackhub.get-shell.com:44885/footer.php
+200    30KB  http://node.hackhub.get-shell.com:44885/header.php
+301   169B   http://node.hackhub.get-shell.com:44885/inc    -> REDIRECTS TO: http://node.hackhub.get-shell.com/inc/
+403   555B   http://node.hackhub.get-shell.com:44885/inc/
+200    31KB  http://node.hackhub.get-shell.com:44885/install.php
+200    31KB  http://node.hackhub.get-shell.com:44885/install.php?profile=default
+301   169B   http://node.hackhub.get-shell.com:44885/test    -> REDIRECTS TO: http://node.hackhub.get-shell.com/test/
+403   555B   http://node.hackhub.get-shell.com:44885/test/
+301   169B   http://node.hackhub.get-shell.com:44885/wiki    -> REDIRECTS TO: http://node.hackhub.get-shell.com/wiki/
+403   555B   http://node.hackhub.get-shell.com:44885/wiki/
+301   169B   http://node.hackhub.get-shell.com:44885/assets/js    -> REDIRECTS TO: http://node.hackhub.get-shell.com/assets/js/
+301   169B   http://node.hackhub.get-shell.com:44885/assets/css    -> REDIRECTS TO: http://node.hackhub.get-shell.com/assets/css/
+301   169B   http://node.hackhub.get-shell.com:44885/assets/fonts    -> REDIRECTS TO: http://node.hackhub.get-shell.com/assets/fonts/
+301   169B   http://node.hackhub.get-shell.com:44885/assets/images    -> REDIRECTS TO: http://node.hackhub.get-shell.com/assets/images/
+301   169B   http://node.hackhub.get-shell.com:44885/assets/swf    -> REDIRECTS TO: http://node.hackhub.get-shell.com/assets/swf/
+200     0B   http://node.hackhub.get-shell.com:44885/inc/config.inc.php
+200     6KB  http://node.hackhub.get-shell.com:44885/test/.DS_Store
+200     6KB  http://node.hackhub.get-shell.com:44885/wiki/.DS_Store
+301   169B   http://node.hackhub.get-shell.com:44885/wiki/image    -> REDIRECTS TO: http://node.hackhub.get-shell.com/wiki/image/
+301   169B   http://node.hackhub.get-shell.com:44885/assets/images/email    -> REDIRECTS TO: http://node.hackhub.get-shell.com/assets/images/email/
+301   169B   http://node.hackhub.get-shell.com:44885/assets/images/gallery    -> REDIRECTS TO: http://node.hackhub.get-shell.com/assets/images/gallery/

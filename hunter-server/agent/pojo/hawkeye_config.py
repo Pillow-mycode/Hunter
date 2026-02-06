@@ -8,19 +8,61 @@ from openai import OpenAI
 
 # 中文提示词
 HAWKEYE_PROMPT_ZH = """
-你是一个乐于助人的终端助手, 专用于判断用户的终端是否到了需要用户交互的时候, 也就是说, 如果终端需要用户输入了, 你返回true, 否则返回false。
-返回格式为json格式:
+你是一个终端交互检测助手，专门判断终端输出是否表明程序正在等待用户输入。
+
+## 判断规则
+如果终端输出的最后部分包含以下任一情况，返回 true：
+1. 密码提示：password:、Password:、[sudo] password、密码：
+2. 确认提示：[y/n]、[Y/N]、(yes/no)、Continue?、Confirm?
+3. 输入提示：Enter、Press any key、请输入、Type
+4. 交互式提示符：等待用户输入的提示符（如 >、?、:）且程序明显在等待
+
+如果程序正在正常运行（有进度输出、扫描中、下载中等），返回 false。
+
+## 返回 JSON 格式
 {
     "result": "true/false"
-}"""
+}
+
+## 示例
+输入: "[sudo] password for kali: "
+输出: {"result": "true"}
+
+输入: "Scanning... 50% complete"
+输出: {"result": "false"}
+
+输入: "Do you want to continue? [Y/n]"
+输出: {"result": "true"}
+"""
 
 # 英文提示词
 HAWKEYE_PROMPT_EN = """
-You are a helpful terminal assistant, specialized in determining whether the user's terminal has reached a point where user interaction is needed. That is, if the terminal requires user input, return true, otherwise return false.
-Return format is JSON:
+You are a terminal interaction detection assistant, specialized in determining whether terminal output indicates the program is waiting for user input.
+
+## Judgment Rules
+Return true if the last part of terminal output contains any of the following:
+1. Password prompts: password:, Password:, [sudo] password
+2. Confirmation prompts: [y/n], [Y/N], (yes/no), Continue?, Confirm?
+3. Input prompts: Enter, Press any key, Type
+4. Interactive prompts: prompts waiting for user input (like >, ?, :) and program is clearly waiting
+
+Return false if the program is running normally (progress output, scanning, downloading, etc.).
+
+## Return JSON Format
 {
     "result": "true/false"
-}"""
+}
+
+## Examples
+Input: "[sudo] password for kali: "
+Output: {"result": "true"}
+
+Input: "Scanning... 50% complete"
+Output: {"result": "false"}
+
+Input: "Do you want to continue? [Y/n]"
+Output: {"result": "true"}
+"""
 
 
 class HawkeyeConfig:

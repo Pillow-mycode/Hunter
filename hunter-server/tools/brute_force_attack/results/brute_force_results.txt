@@ -1,0 +1,8 @@
+成功结果报告
+生成时间: 2026-02-06 11:14:45
+目标URL: http://node.hackhub.get-shell.com:47790/vul/burteforce/bf_form.php
+请求方法: POST
+总尝试次数: 9
+成功次数: 0
+
+无成功组合

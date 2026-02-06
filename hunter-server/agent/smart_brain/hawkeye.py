@@ -9,48 +9,54 @@ class Hawkeye:
 
     def __init__(self, config: HawkeyeConfig):
         self.config = config
-        self.messages = []
         self.client = self.config.hawkeye_client
 
 
-    def get_response(self, result):
+    def get_response(self, messages):
         """获取 LLM 响应，带重试机制"""
         max_retries = 3
         for attempt in range(max_retries):
             try:
+                print(f"[鹰眼] 调用API，消息数: {len(messages)}")
                 completion = self.client.chat.completions.create(
                     model=self.config.model,
-                    messages=self.messages,
+                    messages=messages,
                     response_format={"type": "json_object"},
                     timeout=180  # 3分钟超时
                 )
-                return completion.choices[0].message.content
+                response = completion.choices[0].message.content
+                print(f"[鹰眼] API返回: {response}")
+                return response
             except Exception as e:
-                print(f"Hawkeye API 调用失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                print(f"[鹰眼] API调用失败 (尝试 {attempt + 1}/{max_retries}): {e}")
 
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 2
-                    print(f"Hawkeye: {wait_time}秒后重试...")
+                    print(f"[鹰眼] {wait_time}秒后重试...")
                     time.sleep(wait_time)
                 else:
-                    # 最后一次尝试也失败，返回默认值
-                    print(f"Hawkeye: API 调用失败，跳过检查")
+                    print(f"[鹰眼] API调用失败，跳过检查")
                     return json.dumps({"result": "false"})
 
     def check(self, result: str):
-        """检查结果，带异常处理"""
+        """检查结果，带异常处理。每次检查使用独立的消息列表，避免历史堆积。"""
         try:
-            self.messages.append({"role": "system", "content": self.config.prompt})
-            self.messages.append({"role": "user", "content": result})
+            # 每次检查构建全新的消息列表，不累积历史
+            messages = [
+                {"role": "system", "content": self.config.prompt},
+                {"role": "user", "content": result}
+            ]
 
-            json_string = self.get_response(result)
+            json_string = self.get_response(messages)
 
             response_data = json.loads(json_string)
             res = response_data.get("result")
+
+            print(f"[鹰眼] 解析结果: result={res}")
 
             if res == "true":
                 return True
             return False
         except Exception as e:
-            print(f"Hawkeye 检查异常: {e}")
-            return False  # 出错时默认返回 False
+            print(f"[鹰眼] 检查异常: {e}")
+            return False

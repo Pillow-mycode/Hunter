@@ -32,6 +32,8 @@ class AttackToolMaster:
 
         # 进度回调（用于向客户端发送消息）
         self.on_progress = None
+        # 用户输入回调（用于向用户询问输入）
+        self.on_need_input = None
 
     def _notify_progress(self, message: str):
         """发送进度通知到客户端"""
@@ -385,25 +387,50 @@ class AttackToolMaster:
                     }
 
                 elif response_type == "input":
-                    print(f"武器大师: 提供输入 - {response_content}")
-                    write_to_logs(f"武器大师: 提供输入 - {response_content}")
+                    # 工具需要交互输入，向用户询问
+                    suggested_input = response_content
+                    description = response_description or "工具需要输入"
+
+                    print(f"武器大师: 工具需要输入 - {description}")
+                    write_to_logs(f"武器大师: 工具需要输入 - {description}, 建议输入: {suggested_input}")
+
+                    # 通过回调向用户询问输入
+                    if self.on_need_input:
+                        prompt = f"工具需要输入：{description}\n建议输入: {suggested_input}\n请输入内容（直接回车使用建议值，输入 'skip' 跳过）："
+                        user_input = self.on_need_input(prompt)
+
+                        if user_input is None or user_input.lower() == 'skip':
+                            # 用户跳过输入
+                            write_to_logs(f"武器大师: 用户跳过输入")
+                            self.append_message("system", "用户跳过了输入，尝试继续执行")
+                            continue
+
+                        # 如果用户直接回车，使用建议值
+                        actual_input = user_input.strip() if user_input.strip() else suggested_input
+                    else:
+                        # 没有回调，使用建议值
+                        actual_input = suggested_input
+
+                    print(f"武器大师: 提供输入 - {actual_input}")
+                    write_to_logs(f"武器大师: 提供输入 - {actual_input}")
+
                     from agent.system.system_command import write_input_to_active_process
-                    results = write_input_to_active_process(response_content)
+                    results = write_input_to_active_process(actual_input)
                     if results:
                         write_to_logs(f"system: 继续执行结果:{results[:500]}...")
                         # 处理过长输出
                         results, file_path = process_long_output(
                             results,
-                            f"input: {response_content}",
+                            f"input: {actual_input}",
                             self.current_task_id or task_id,
                             threshold=30000
                         )
                         if file_path:
-                            self._notify_progress(f"[文件] 输出��长，完整结果已保存: {file_path}")
+                            self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
                         self.append_message("system", results)
                     else:
                         write_to_logs(f"system: 没有活跃进程，输入被忽略")
-                        self.append_message("system", "没有活跃进程，输入被忽略")
+                        self.append_message("system", "没有活跃进程，输入被忽略。可能需要重新运行命令。")
                     continue
 
                 elif response_type == "generate_script":
@@ -642,13 +669,37 @@ class AttackToolMaster:
                     }
 
                 elif response_type == "input":
+                    # 工具需要交互输入，向用户询问
+                    suggested_input = response_content
+                    description = response_description or "工具需要输入"
+
+                    print(f"武器大师: 工具需要输入 - {description}")
+                    write_to_logs(f"武器大师: 工具需要输入 - {description}, 建议输入: {suggested_input}")
+
+                    # 通过回调向用户询问输入
+                    if self.on_need_input:
+                        prompt = f"工具需要输入：{description}\n建议输入: {suggested_input}\n请输入内容（直接回车使用建议值，输入 'skip' 跳过）："
+                        user_input = self.on_need_input(prompt)
+
+                        if user_input is None or user_input.lower() == 'skip':
+                            write_to_logs(f"武器大师: 用户跳过输入")
+                            self.append_message("system", "用户跳过了输入，尝试继续执行")
+                            continue
+
+                        actual_input = user_input.strip() if user_input.strip() else suggested_input
+                    else:
+                        actual_input = suggested_input
+
+                    print(f"武器大师: 提供输入 - {actual_input}")
+                    write_to_logs(f"武器大师: 提供输入 - {actual_input}")
+
                     from agent.system.system_command import write_input_to_active_process
-                    results = write_input_to_active_process(response_content)
+                    results = write_input_to_active_process(actual_input)
                     if results:
                         # 处理过长输出
                         results, file_path = process_long_output(
                             results,
-                            f"input: {response_content}",
+                            f"input: {actual_input}",
                             self.current_task_id or task_id,
                             threshold=30000
                         )
@@ -656,7 +707,7 @@ class AttackToolMaster:
                             self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
                         self.append_message("system", results)
                     else:
-                        self.append_message("system", "没有活跃进程，输入被忽略")
+                        self.append_message("system", "没有活跃进程，输入被忽略。可能需要重新运行命令。")
                     continue
 
                 elif response_type == "task_done":

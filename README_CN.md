@@ -112,6 +112,13 @@ LEADER_API_KEY=
 LEADER_BASE_URL=
 LEADER_MODEL=
 
+# ==================== 数据分析员配置 ====================
+# 负责分析超长命令输出，提取关键信息
+# 建议使用便宜的小模型，如 qwen-turbo、glm-4-flash
+ANALYST_API_KEY=
+ANALYST_BASE_URL=
+ANALYST_MODEL=
+
 ```
 
 #### 配置说明
@@ -244,6 +251,11 @@ python server/app.py
 │  │              鹰眼 (Hawkeye) - 交互检测                   │  │
 │  │  - 智能判断：检测终端是否需要用户输入                │  │
 │  │  - 避免阻塞：及时通知用户输入需求                     │  │
+│  │                                                        │  │
+│  │              数据分析员 (DataAnalyst) - 输出分析         │  │
+│  │  - 智能摘要：分析超长命令输出，提取关键发现           │  │
+│  │  - 分批处理：自动分批处理超大输出，汇总结果           │  │
+│  │  - 避免信息丢失：确保武器大师获得完整的关键信息       │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                              │                               │
 │                    工具调用 (Kali 内置 + 自定义)            │
@@ -271,11 +283,13 @@ hunter-server/
 │   ├── smart_brain/    # 智能体实现
 │   │   ├── attack_leader.py      # 渗透专家
 │   │   ├── attack_tool_master.py # 武器大师
-│   │   └── hawkeye.py          # 鹰眼
+│   │   ├── hawkeye.py            # 鹰眼
+│   │   └── data_analyst.py       # 数据分析员
 │   ├── pojo/          # 配置类
-│   │   ├── leader_config.py     # 渗透专家配置
+│   │   ├── leader_config.py      # 渗透专家配置
 │   │   ├── attack_config.py      # 武器大师配置
-│   │   └── hawkeye_config.py    # 鹰眼配置
+│   │   ├── hawkeye_config.py     # 鹰眼配置
+│   │   └── analyst_config.py     # 数据分析员配置
 │   ├── system/        # 系统模块
 │   │   ├── system_command.py     # 命令执行（PTY）
 │   │   └── output_handler.py     # 输出处理

@@ -55,8 +55,8 @@ WEAPON_MASTER_PROMPT_ZH = """
 ### 对于外部工具 [EXTERNAL]：
 1. 查看武器库 (check_tools) 确认工具可用
 2. **必须先检查工具是否已安装**（使用 check_tool_installed）
-3. 如果未安装，使用 install_tool 安装工具
-4. 安装成功后，根据你的知识库构造命令执行
+3. 如果**已安装**，直接根据你的知识库构造命令执行，**不要再安装**
+4. 如果**未安装**，使用 install_tool 安装工具，安装成功后再执行
 5. 如果缺少必要参数，使用 need_message 询问用户
 
 ## 重要规则
@@ -290,8 +290,8 @@ Tools in the arsenal are divided into three categories:
 ### For External Tools [EXTERNAL]:
 1. Check arsenal (check_tools) to confirm tool availability
 2. **Must check if tool is installed** (use check_tool_installed)
-3. If not installed, use install_tool to install
-4. After successful installation, construct and execute commands based on your knowledge
+3. If **already installed**, directly construct and execute commands based on your knowledge, **do NOT install again**
+4. If **not installed**, use install_tool to install, then execute after successful installation
 5. If missing required parameters, use need_message to ask user
 
 ## Important Rules
@@ -376,8 +376,8 @@ Tools in the arsenal are divided into three categories:
 ### For External Tools [EXTERNAL]:
 1. Check arsenal (check_tools) to confirm tool availability
 2. **Must check if tool is installed** (use check_tool_installed)
-3. If not installed, use install_tool to install
-4. After successful installation, construct and execute commands based on your knowledge
+3. If **already installed**, directly construct and execute commands based on your knowledge, **do NOT install again**
+4. If **not installed**, use install_tool to install, then execute after successful installation
 5. If missing required parameters, use need_message to ask user
 
 ## Important Rules

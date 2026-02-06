@@ -105,6 +105,13 @@ HAWKEYE_MODEL=
 LEADER_API_KEY=
 LEADER_BASE_URL=
 LEADER_MODEL=
+
+# ==================== Data Analyst Configuration ====================
+# Responsible for analyzing long command outputs and extracting key information
+# Recommend using cheap small models like qwen-turbo, glm-4-flash
+ANALYST_API_KEY=
+ANALYST_BASE_URL=
+ANALYST_MODEL=
 ```
 
 #### Configuration Notes
@@ -238,6 +245,11 @@ You're ready to start testing!
 │  │              Hawkeye - Interaction Detection           │  │
 │  │  - Smart Detection: Check if terminal needs user input │  │
 │  │  - Avoid Blocking: Timely notify user of input needs   │  │
+│  │                                                        │  │
+│  │              Data Analyst - Output Analysis            │  │
+│  │  - Smart Summary: Analyze long outputs, extract keys   │  │
+│  │  - Batch Processing: Auto-batch large outputs, merge   │  │
+│  │  - Prevent Info Loss: Ensure Weapon Master gets info   │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                              │                               │
 │                    Tool Invocation (Kali Built-in + Custom)  │
@@ -265,11 +277,13 @@ hunter-server/
 │   ├── smart_brain/    # Agent implementations
 │   │   ├── attack_leader.py      # Penetration Expert
 │   │   ├── attack_tool_master.py # Weapon Master
-│   │   └── hawkeye.py            # Hawkeye
+│   │   ├── hawkeye.py            # Hawkeye
+│   │   └── data_analyst.py       # Data Analyst
 │   ├── pojo/          # Configuration classes
 │   │   ├── leader_config.py      # Penetration Expert config
 │   │   ├── attack_config.py      # Weapon Master config
-│   │   └── hawkeye_config.py     # Hawkeye config
+│   │   ├── hawkeye_config.py     # Hawkeye config
+│   │   └── analyst_config.py     # Data Analyst config
 │   ├── system/        # System modules
 │   │   ├── system_command.py     # Command execution (PTY)
 │   │   └── output_handler.py     # Output handling
