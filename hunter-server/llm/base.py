@@ -51,5 +51,6 @@ class BaseProvider(ABC):
         优先级: kwargs > extra_params > 类默认值
         子类可覆盖此方法以修改默认 temperature 等。
         """
-        defaults = {"temperature": 0.0}
+        default_temp = getattr(self, "DEFAULT_TEMPERATURE", 0.0)
+        defaults = {"temperature": default_temp}
         return {**defaults, **self.extra_params, **kwargs}

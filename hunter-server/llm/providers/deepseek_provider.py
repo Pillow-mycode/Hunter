@@ -21,8 +21,6 @@ class DeepSeekProvider(BaseProvider):
         params = self._merge_kwargs(**kwargs)
         if self.supports_json_mode():
             params["response_format"] = {"type": "json_object"}
-        if "temperature" not in params:
-            params["temperature"] = self.DEFAULT_TEMPERATURE
         completion = self.client.chat.completions.create(
             model=self.model,
             messages=messages,

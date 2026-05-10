@@ -1,8 +1,4 @@
 import os
-from dotenv import load_dotenv
-
-# 确保在导入 Provider 之前加载环境变量
-load_dotenv(override=True)
 
 from llm.factory import ProviderFactory
 

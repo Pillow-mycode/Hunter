@@ -2,8 +2,6 @@
 配置管理 API 端点
 """
 import os
-import re
-import time
 import logging
 from typing import Optional
 
@@ -51,6 +49,17 @@ def _mask_api_key(key: str) -> str:
     if len(key) <= 8:
         return "*" * len(key)
     return key[:4] + "****" + key[-4:]
+
+
+def _reload_config():
+    """触发热加载：reload .env → 清空 Provider 缓存。"""
+    try:
+        from llm.config_manager import get_config_manager
+        get_config_manager().reload()
+    except ImportError:
+        from dotenv import load_dotenv
+        load_dotenv(override=True)
+        ProviderFactory.clear_cache()
 
 
 def _get_agent_config(agent_type: str) -> dict:
@@ -159,14 +168,7 @@ async def update_config(body: ConfigUpdateModel):
 
     _write_env(config_dict)
 
-    # 触发热加载
-    try:
-        from llm.config_manager import get_config_manager
-        get_config_manager().reload()
-    except ImportError:
-        from dotenv import load_dotenv
-        load_dotenv(override=True)
-        ProviderFactory.clear_cache()
+    _reload_config()
 
     logger.info("Config updated and reloaded")
     return {"ok": True}
@@ -205,13 +207,7 @@ async def test_connection(body: TestConfigModel):
 @router.post("/reload")
 async def reload_config():
     """强制从 .env 重读所有配置。"""
-    try:
-        from llm.config_manager import get_config_manager
-        get_config_manager().reload()
-    except ImportError:
-        from dotenv import load_dotenv
-        load_dotenv(override=True)
-        ProviderFactory.clear_cache()
+    _reload_config()
 
     logger.info("Config reloaded")
     return {"ok": True}

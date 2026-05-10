@@ -35,8 +35,6 @@ class OpenAICompatProvider(BaseProvider):
             messages = self._ensure_json_format(messages)
         else:
             params["response_format"] = {"type": "json_object"}
-        if "temperature" not in params:
-            params["temperature"] = self.DEFAULT_TEMPERATURE
         completion = self.client.chat.completions.create(
             model=self.model,
             messages=messages,

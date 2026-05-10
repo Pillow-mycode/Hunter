@@ -3,6 +3,7 @@ import json
 import time
 
 from agent.pojo.hawkeye_config import HawkeyeConfig
+from llm.compat import parse_json_response
 
 
 class Hawkeye:
@@ -42,7 +43,7 @@ class Hawkeye:
 
             json_string = self.get_response(messages)
 
-            response_data = json.loads(json_string)
+            response_data = parse_json_response(json_string)
             res = response_data.get("result")
 
             print(f"[鹰眼] 解析结果: result={res}")

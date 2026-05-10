@@ -5,6 +5,17 @@ from llm.base import BaseProvider
 from llm.providers.deepseek_provider import DeepSeekProvider
 from llm.providers.openai_compat_provider import OpenAICompatProvider
 
+_env_loaded = False
+
+
+def _ensure_env():
+    """确保 .env 已加载到 os.environ，多次调用只加载一次。"""
+    global _env_loaded
+    if not _env_loaded:
+        from dotenv import load_dotenv
+        load_dotenv(override=True)
+        _env_loaded = True
+
 
 class ProviderFactory:
     _instances: Dict[str, BaseProvider] = {}
@@ -67,6 +78,7 @@ class ProviderFactory:
 
     @classmethod
     def create_from_env(cls, agent_type: str) -> BaseProvider:
+        _ensure_env()
         if agent_type in cls._instances:
             return cls._instances[agent_type]
 
