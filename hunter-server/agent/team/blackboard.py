@@ -26,12 +26,7 @@ class Blackboard:
                 "other": [],
             },
             "activity_feed": [],
-            "agent_status": {
-                "leader": "idle",
-                "tool_master": "idle",
-                "data_analyst": "idle",
-                "hawkeye": "monitoring",
-            },
+            "agent_status": {},
         }
 
     def write(self, section: str, key: str, value) -> None:

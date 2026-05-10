@@ -9,7 +9,7 @@ from typing import Literal, Optional
 
 # ─── Agent identity ────────────────────────────────────────────────
 
-AgentId = Literal["leader", "tool_master", "data_analyst", "hawkeye"]
+AgentId = str  # 动态实例 ID，支持多实例（如 tool_master_1, tool_master_2）
 
 # ─── 消息类型常量 ──────────────────────────────────────────────────
 
@@ -24,6 +24,7 @@ MSG_ANALYSIS_REQUEST = "analysis_request"
 MSG_ANALYSIS_RESULT = "analysis_result"
 MSG_HELP_REQUEST = "help_request"
 MSG_ACK = "ack"
+MSG_CANCEL = "cancel"
 
 VALID_MSG_TYPES: frozenset[str] = frozenset({
     MSG_DELEGATION,
@@ -37,6 +38,7 @@ VALID_MSG_TYPES: frozenset[str] = frozenset({
     MSG_ANALYSIS_RESULT,
     MSG_HELP_REQUEST,
     MSG_ACK,
+    MSG_CANCEL,
 })
 
 
@@ -84,8 +86,8 @@ class InterAgentMessage:
     def from_dict(cls, data: dict) -> InterAgentMessage:
         return cls(
             msg_id=data.get("msg_id", ""),
-            from_agent=data.get("from_agent", ""),
-            to_agent=data.get("to_agent", ""),
+            from_agent=data.get("from_agent", "leader"),
+            to_agent=data.get("to_agent", "leader"),
             msg_type=data.get("msg_type", ""),
             content=data.get("content", ""),
             task_id=data.get("task_id"),

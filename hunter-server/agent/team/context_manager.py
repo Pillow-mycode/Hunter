@@ -24,6 +24,14 @@ class ContextManager:
         "hawkeye": "鹰眼 — 负责监控进程交互提示、检测异常时长、主动告警",
     }
 
+    @classmethod
+    def get_role_desc(cls, agent_id: str) -> str:
+        """根据 agent ID 获取角色描述，支持动态实例 ID"""
+        for prefix, desc in cls.TEAM_ROLES.items():
+            if agent_id == prefix or agent_id.startswith(f"{prefix}_"):
+                return desc
+        return f"Agent ({agent_id})"
+
     def __init__(self, session_id: str = ""):
         self.session_id = session_id
         self._db = get_database()
@@ -54,7 +62,7 @@ class ContextManager:
             ),
         }
         # 注入 Agent 专属提示
-        context["my_role"] = self.TEAM_ROLES.get(agent_id, "")
+        context["my_role"] = self.get_role_desc(agent_id)
         return context
 
     def _format_team_roles(self) -> str:

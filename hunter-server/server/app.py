@@ -45,6 +45,7 @@ from agent.manager.database_manager import get_database, DatabaseManager
 from agent.team.comm_bus import CommunicationBus
 from agent.team.blackboard import Blackboard
 from agent.team.agent_loop import AgentLoop
+from agent.team.agent_pool import AgentPool
 from agent.team.protocol import InterAgentMessage
 from llm.factory import ProviderFactory
 from server.config_api import router as config_router
@@ -158,7 +159,7 @@ class SessionManager:
                 cancel_msg = InterAgentMessage(
                     from_agent="leader",
                     to_agent="leader",
-                    msg_type="delegation",
+                    msg_type="cancel",
                     content="[系统] 任务已被用户取消，请立即停止所有操作。",
                 )
                 comm_bus.broadcast(cancel_msg)
@@ -188,18 +189,89 @@ class SessionManager:
         return self.leader_instances[session_id]
 
     def setup_team(self, session_id: str, main_loop, on_need_input, on_need_confirm):
-        """创建完整的 Agent 团队：CommBus + Blackboard + 4 agents + 4 AgentLoops。
+        """创建 Agent 团队：CommBus + Blackboard + AgentPool + AgentLoops。
 
-        返回 (leader, loops_dict)。
+        返回 (leader, loops_dict)。会话复用时创建新的 AgentLoop 线程。
         """
         if session_id in self.comm_buses:
-            return self.leader_instances.get(session_id), self.agent_loops.get(session_id, {})
+            # 会话复用路径
+            leader = self.leader_instances.get(session_id)
+            comm_bus = self.comm_buses[session_id]
+            blackboard = self.blackboards[session_id]
+            pool = self.agent_pools.get(session_id) if hasattr(self, "agent_pools") else None
+            if not leader or not comm_bus or not blackboard:
+                raise RuntimeError(f"会话 {session_id} 团队资源不完整")
+
+            old_loops = self.agent_loops.pop(session_id, {})
+            for old_loop in old_loops.values():
+                old_loop.stop()
+
+            agents = {}
+            for aid, old_loop in old_loops.items():
+                agents[aid] = old_loop.agent
+
+            leader.on_need_input = on_need_input
+            leader.on_need_confirm = on_need_confirm
+
+            def make_stream_callback(agent_name: str):
+                def on_stream_chunk(chunk: str):
+                    asyncio.run_coroutine_threadsafe(
+                        session_manager.send_message(session_id, "stream", {
+                            "agent": agent_name,
+                            "chunk": chunk,
+                        }),
+                        main_loop
+                    )
+                return on_stream_chunk
+            leader.stream_callback = make_stream_callback("leader")
+
+            loops = {}
+            for aid, agent in agents.items():
+                loops[aid] = AgentLoop(agent, comm_bus, blackboard)
+            # 补充 pool 中的 loops
+            if pool:
+                for iid, loop in loops.items():
+                    if iid != "leader":
+                        pool.register_loop(iid, loop)
+
+            self.agent_loops[session_id] = loops
+            print(f"[Team] 会话 {session_id} 复用团队，已创建新 AgentLoop 线程")
+            return leader, loops
 
         # 1. 创建 CommBus + Blackboard
         comm_bus = CommunicationBus(session_id=session_id)
         blackboard = Blackboard()
 
-        # 2. 设置进度回调：Agent 间消息 → WebSocket
+        # 2. 注册 Leader
+        comm_bus.register_agent("leader")
+
+        # 3. Leader 实例
+        leader_config = AttackLeaderConfig()
+        leader = AttackLeader(leader_config, comm_bus=comm_bus, blackboard=blackboard)
+        history = self.db.get_conversation_history(session_id)
+        if history:
+            leader.context["conversation_history"] = history
+
+        # 4. AgentPool + 工厂注册
+        pool = AgentPool(comm_bus, blackboard)
+        pool.register_factory("tool_master",
+            lambda iid: AttackToolMaster(AttackToolMasterConfig(),
+                                         comm_bus=comm_bus, blackboard=blackboard))
+        pool.register_factory("data_analyst",
+            lambda iid: DataAnalyst(DataAnalystConfig(),
+                                    comm_bus=comm_bus, blackboard=blackboard))
+        pool.register_factory("hawkeye",
+            lambda iid: Hawkeye(HawkeyeConfig(),
+                                comm_bus=comm_bus, blackboard=blackboard))
+        leader.agent_pool = pool
+
+        # 5. 预创建各类型一个实例
+        for atype in ("tool_master", "data_analyst", "hawkeye"):
+            iid, agent = pool.acquire(atype)
+            if iid:
+                pool.release(iid)
+
+        # 6. 进度回调
         def on_agent_message(msg: InterAgentMessage):
             asyncio.run_coroutine_threadsafe(
                 store_and_send_progress(
@@ -209,32 +281,13 @@ class SessionManager:
                 ),
                 main_loop
             )
-
         comm_bus.on_send = on_agent_message
 
-        # 3. 创建 4 个 Agent 实例（传入 comm_bus + blackboard 激活 AgentBase）
-        leader_config = AttackLeaderConfig()
-        leader = AttackLeader(leader_config, comm_bus=comm_bus, blackboard=blackboard)
-        # 恢复对话历史
-        history = self.db.get_conversation_history(session_id)
-        if history:
-            leader.context["conversation_history"] = history
-
-        tool_config = AttackToolMasterConfig(language=leader.language)
-        tool_master = AttackToolMaster(tool_config, comm_bus=comm_bus, blackboard=blackboard)
-
-        hawkeye_config = HawkeyeConfig(language=leader.language)
-        hawkeye = Hawkeye(hawkeye_config, comm_bus=comm_bus, blackboard=blackboard)
-
-        analyst_config = DataAnalystConfig(language=leader.language)
-        data_analyst = DataAnalyst(analyst_config, comm_bus=comm_bus, blackboard=blackboard)
-
-        # 4. 保留回调兼容（Leader 的 wait_for_input / wait_for_confirm）
-        leader.on_progress = None  # 进度通过 CommBus 推送
+        # 7. Leader 回调
+        leader.on_progress = None
         leader.on_need_input = on_need_input
         leader.on_need_confirm = on_need_confirm
 
-        # 4.5 设置流式输出回调：LLM token → WebSocket → 前端打字机效果
         def make_stream_callback(agent_name: str):
             def on_stream_chunk(chunk: str):
                 asyncio.run_coroutine_threadsafe(
@@ -245,25 +298,29 @@ class SessionManager:
                     main_loop
                 )
             return on_stream_chunk
-
         leader.stream_callback = make_stream_callback("leader")
-        # leader setter 自动传播到 weapon_master
 
-        # 5. 为每个 Agent 创建 AgentLoop
-        loops = {
-            "leader": AgentLoop(leader, comm_bus, blackboard),
-            "tool_master": AgentLoop(tool_master, comm_bus, blackboard),
-            "data_analyst": AgentLoop(data_analyst, comm_bus, blackboard),
-            "hawkeye": AgentLoop(hawkeye, comm_bus, blackboard),
-        }
+        # 8. 为所有实例创建 AgentLoop
+        loops = {"leader": AgentLoop(leader, comm_bus, blackboard)}
+        for iid in comm_bus.list_agents():
+            if iid == "leader":
+                continue
+            agent = pool._instances.get(iid)
+            if agent:
+                loop = AgentLoop(agent, comm_bus, blackboard)
+                loops[iid] = loop
+                pool.register_loop(iid, loop)
 
-        # 6. 存储到 session 级字典
+        # 9. 存储
         self.comm_buses[session_id] = comm_bus
         self.blackboards[session_id] = blackboard
         self.agent_loops[session_id] = loops
         self.leader_instances[session_id] = leader
+        if not hasattr(self, "agent_pools"):
+            self.agent_pools = {}
+        self.agent_pools[session_id] = pool
 
-        print(f"[Team] 会话 {session_id} 团队已创建：Leader + ToolMaster + Hawkeye + DataAnalyst")
+        print(f"[Team] 会话 {session_id} 团队已创建：Leader + AgentPool({list(pool._instances.keys())})")
         return leader, loops
 
     def cleanup_team(self, session_id: str):
@@ -715,9 +772,6 @@ async def run_session_task(session_id: str, command: str):
         blackboard.write("mission", "objective", command)
         blackboard.write("mission", "status", "in_progress")
         blackboard.add_activity(f"收到任务: {command}")
-
-        # 存储用户消息
-        session_manager.add_message(session_id, "user", command)
 
         # 3. 启动所有 AgentLoop 线程
         for agent_id, loop in loops.items():

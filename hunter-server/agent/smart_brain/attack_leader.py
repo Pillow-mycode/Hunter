@@ -157,6 +157,7 @@ class AttackLeader(AgentBase):
         # 状态机（AgentLoop decide() 路径使用）
         self.state = "idle"  # idle | executing | reviewing | complete
         self.active_plan: Optional[Plan] = None
+        self.agent_pool = None  # P3: AgentPool 引用，None 时回退到串行模式
 
         # 回调函数
         self._on_progress: Optional[Callable] = None
@@ -1038,7 +1039,7 @@ class AttackLeader(AgentBase):
 
         self.active_plan = plan
         self.state = "executing"
-        return self._dispatch_next_step()
+        return self._dispatch_ready_steps()
 
     def _handle_simple_request(self, classification: dict, user_request: str) -> dict:
         req_type = classification.get("type", "simple_query")
@@ -1053,7 +1054,7 @@ class AttackLeader(AgentBase):
         if plan and plan.steps:
             self.active_plan = plan
             self.state = "executing"
-            return self._dispatch_next_step()
+            return self._dispatch_ready_steps()
 
         # 无法生成计划 → 直接 complete
         self.state = "complete"
@@ -1065,17 +1066,32 @@ class AttackLeader(AgentBase):
             self.state = "idle"
             return {"type": "wait"}
 
-        # 处理刚收到的结果 → 更新对应 step
+        # 处理结果 → 通过 outstanding_dict 匹配 step_id
+        outstanding_dict = context.get("outstanding_dict", {})
         for msg in new_msgs:
             if msg.msg_type == MSG_TASK_RESULT:
                 result = msg.context_json or {}
-                if plan.current_idx < len(plan.steps):
-                    current_step = plan.steps[plan.current_idx]
-                    current_step.status = "DONE" if result.get("status") == "success" else "FAILED"
-                    current_step.result_summary = (result.get("summary", "")
-                                                   or result.get("raw_output", "")
-                                                   or "")[:200]
-                    plan.current_idx += 1
+                # 通过 msg_id → OutstandingTask → step_id 匹配
+                step_id = None
+                for tid, task in outstanding_dict.items():
+                    task_step_id = getattr(task, "step_id", "") if hasattr(task, "step_id") else task.get("step_id", "")
+                    if task_step_id:
+                        step_id = task_step_id
+                        break
+                step = plan.find_step(step_id) if step_id else None
+                if step is None:
+                    # fallback: 找第一个 DISPATCHED 的 step
+                    for s in plan.steps:
+                        if s.status == "DISPATCHED":
+                            step = s
+                            break
+                if step:
+                    step.status = "DONE" if result.get("status") == "success" else "FAILED"
+                    step.result_summary = (result.get("summary", "")
+                                           or result.get("raw_output", "")
+                                           or "")[:200]
+                    if self.agent_pool and step.dispatched_to:
+                        self.agent_pool.release(step.dispatched_to)
 
         # 有未完成任务 → 等待
         outstanding = context.get("outstanding_tasks", "")
@@ -1088,7 +1104,7 @@ class AttackLeader(AgentBase):
             return self._handle_reviewing(context)
 
         # 下一步
-        return self._dispatch_next_step()
+        return self._dispatch_ready_steps()
 
     def _handle_reviewing(self, context: dict) -> dict:
         plan = self.active_plan
@@ -1104,26 +1120,36 @@ class AttackLeader(AgentBase):
         if new_plan and new_plan.steps:
             self.active_plan = new_plan
             self.state = "executing"
-            return self._dispatch_next_step()
+            return self._dispatch_ready_steps()
 
         self.state = "complete"
         return {"type": "complete", "summary": review.get("summary", "任务完成")}
 
-    def _dispatch_next_step(self) -> dict:
+    def _dispatch_ready_steps(self) -> dict:
+        """派发就绪步骤（使用 AgentPool 获取空闲实例）"""
         plan = self.active_plan
         if plan is None:
             self.state = "idle"
             return {"type": "wait"}
 
-        step = plan.next_step()
-        if step is None:
+        ready = plan.get_ready_steps()
+        if not ready:
             self.state = "reviewing"
             return {"type": "wait"}
+
+        step = ready[0]
+
+        target = step.target_agent
+        if self.agent_pool:
+            iid, _ = self.agent_pool.acquire(step.target_agent)
+            if iid:
+                target = iid
+                step.dispatched_to = iid
 
         step.status = "DISPATCHED"
         return {
             "type": "delegate",
-            "target": step.target_agent,
+            "target": target,
             "content": step.instruction,
             "step_id": step.id,
         }

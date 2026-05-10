@@ -80,6 +80,7 @@ class AgentLoop(threading.Thread):
         context = {
             "mission": self.blackboard.read("mission"),
             "outstanding_tasks": self._format_outstanding_tasks(),
+            "outstanding_dict": dict(self.outstanding_tasks),  # P3: step_id 匹配
             "blackboard_summary": self.blackboard.get_summary(),
             "team_status": self.comm_bus.get_team_status(),
             "history": [],
