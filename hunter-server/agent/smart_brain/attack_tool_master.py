@@ -21,9 +21,7 @@ class AttackToolMaster:
         self.messages = []
         self.tools = config.tools
         self.config = config
-        self.client = config.attack_tool_master_client
         self.messages.append({"role": "system", "content": self.config.system_prompt})
-        self.model = config.model
         self.messages_lock = threading.Lock()
 
         # 当前任务信息
@@ -127,13 +125,7 @@ class AttackToolMaster:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                completion = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                    timeout=180  # 3分钟超时
-                )
-                return completion.choices[0].message.content
+                return self.config.provider.chat(messages)
             except Exception as e:
                 error_msg = str(e)
                 print(f"武器大师 API 调用失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")

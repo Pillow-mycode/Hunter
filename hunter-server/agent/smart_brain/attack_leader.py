@@ -193,8 +193,7 @@ MESSAGES = {
 
 class AttackLeader:
     def __init__(self, config: AttackLeaderConfig):
-        self.client = config.leader_client
-        self.model = config.model
+        self.config = config
         self.system_prompt = config.system_prompt
         self.language = getattr(config, 'language', 'zh')  # 获取语言配置
         self.messages = []
@@ -281,15 +280,10 @@ class AttackLeader:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                self._notify_progress(self._msg("msg_calling_model", model=self.model, attempt=attempt + 1, max_retries=max_retries))
-                completion = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                    timeout=180  # 3分钟超时
-                )
+                self._notify_progress(self._msg("msg_calling_model", model=self.config.model, attempt=attempt + 1, max_retries=max_retries))
+                response_text = self.config.provider.chat(messages)
                 self._notify_progress(self._msg("msg_model_complete"))
-                return completion.choices[0].message.content
+                return response_text
             except Exception as e:
                 error_msg = str(e)
                 write_to_logs(f"LLM API 调用失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")

@@ -1,10 +1,10 @@
 import os
 from dotenv import load_dotenv
 
-# 确保在导入 OpenAI 之前加载环境变量
+# 确保在导入 Provider 之前加载环境变量
 load_dotenv(override=True)
 
-from openai import OpenAI
+from llm.factory import ProviderFactory
 
 
 # 中文系统提示词
@@ -142,12 +142,9 @@ Always return results in JSON format.
 
 class AttackLeaderConfig:
     def __init__(self, prompt=None, language=None):
-        # 在实例化时读取环境变量，确保 .env 已加载
-        self.leader_client = OpenAI(
-            api_key=os.getenv("LEADER_API_KEY") or os.getenv("DEFAULT_API_KEY"),
-            base_url=os.getenv("LEADER_BASE_URL") or os.getenv("DEFAULT_BASE_URL")
-        )
-        self.model = os.getenv("LEADER_MODEL") or os.getenv("DEFAULT_MODEL")
+        # 使用 Provider 层创建 LLM 客户端
+        self.provider = ProviderFactory.create_from_env(agent_type="leader")
+        self.model = self.provider.model
 
         # 语言配置：优先使用参数，其次使用环境变量，默认中文
         self.language = language or os.getenv("LANGUAGE", "zh").lower()

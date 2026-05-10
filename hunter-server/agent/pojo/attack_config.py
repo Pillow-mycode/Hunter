@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
-from openai import OpenAI
+from llm.factory import ProviderFactory
 
 """
 武器大师配置
@@ -577,12 +577,9 @@ class AttackToolMasterConfig:
         # 使用默认路径
         if tools_path is None:
             tools_path = DEFAULT_TOOLS_PATH
-        # 在实例化时读取环境变量，确保 .env 已加载
-        self.attack_tool_master_client = OpenAI(
-            api_key=os.getenv("ATTACKER_API_KEY") or os.getenv("DEFAULT_API_KEY"),
-            base_url=os.getenv("ATTACKER_BASE_URL") or os.getenv("DEFAULT_BASE_URL")
-        )
-        self.model = os.getenv("ATTACKER_MODEL") or os.getenv("DEFAULT_MODEL")
+        # 使用 Provider 层创建 LLM 客户端
+        self.provider = ProviderFactory.create_from_env(agent_type="attacker")
+        self.model = self.provider.model
 
         # 语言配置：优先使用参数，其次使用环境变量，默认中文
         self.language = language or os.getenv("LANGUAGE", "zh").lower()

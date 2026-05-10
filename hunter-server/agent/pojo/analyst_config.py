@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
-from openai import OpenAI
+from llm.factory import ProviderFactory
 
 """
 数据分析员配置
@@ -75,12 +75,9 @@ Analyze penetration testing tool outputs, extract key information, and summarize
 
 class DataAnalystConfig:
     def __init__(self, language: str = None):
-        # 在实例化时读取环境变量
-        self.client = OpenAI(
-            api_key=os.getenv("ANALYST_API_KEY") or os.getenv("DEFAULT_API_KEY"),
-            base_url=os.getenv("ANALYST_BASE_URL") or os.getenv("DEFAULT_BASE_URL")
-        )
-        self.model = os.getenv("ANALYST_MODEL") or os.getenv("DEFAULT_MODEL")
+        # 使用 Provider 层创建 LLM 客户端
+        self.provider = ProviderFactory.create_from_env(agent_type="analyst")
+        self.model = self.provider.model
 
         # 语言配置
         self.language = language or os.getenv("LANGUAGE", "zh").lower()

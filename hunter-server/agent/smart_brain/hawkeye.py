@@ -9,7 +9,6 @@ class Hawkeye:
 
     def __init__(self, config: HawkeyeConfig):
         self.config = config
-        self.client = self.config.hawkeye_client
 
 
     def get_response(self, messages):
@@ -18,13 +17,7 @@ class Hawkeye:
         for attempt in range(max_retries):
             try:
                 print(f"[鹰眼] 调用API，消息数: {len(messages)}")
-                completion = self.client.chat.completions.create(
-                    model=self.config.model,
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                    timeout=180  # 3分钟超时
-                )
-                response = completion.choices[0].message.content
+                response = self.config.provider.chat(messages)
                 print(f"[鹰眼] API返回: {response}")
                 return response
             except Exception as e:

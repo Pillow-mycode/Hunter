@@ -16,8 +16,6 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 class DataAnalyst:
     def __init__(self, config: DataAnalystConfig = None):
         self.config = config or DataAnalystConfig()
-        self.client = self.config.client
-        self.model = self.config.model
         self.system_prompt = self.config.system_prompt
 
     def _call_llm(self, content: str) -> str:
@@ -25,16 +23,10 @@ class DataAnalyst:
         try:
             print(f"[数据分析员] 正在分析 {len(content)} 字符的输出...")
 
-            completion = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": f"请分析以下渗透测试工具的输出，提取关键信息：\n\n{content}"}
-                ],
-                timeout=120
-            )
-
-            result = completion.choices[0].message.content
+            result = self.config.provider.chat([
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": f"请分析以下渗透测试工具的输出，提取关键信息：\n\n{content}"}
+            ])
             print(f"[数据分析员] 分析完成")
             return result
 
@@ -79,16 +71,10 @@ class DataAnalyst:
         try:
             print(f"[数据分析员] 正在汇总 {len(summaries)} 个批次的结果...")
 
-            completion = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": f"以下是对一个大型输出分批分析的结果，请汇总这些结果，生成一个完整的总结：\n\n{combined}"}
-                ],
-                timeout=120
-            )
-
-            result = completion.choices[0].message.content
+            result = self.config.provider.chat([
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": f"以下是对一个大型输出分批分析的结果，请汇总这些结果，生成一个完整的总结：\n\n{combined}"}
+            ])
             print(f"[数据分析员] 汇总完成")
             return result
 

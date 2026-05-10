@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
-from openai import OpenAI
+from llm.factory import ProviderFactory
 
 
 # 中文提示词
@@ -67,12 +67,9 @@ Output: {"result": "true"}
 
 class HawkeyeConfig:
     def __init__(self, prompt=None, language=None):
-        # 在实例化时读取环境变量，确保 .env 已加载
-        self.hawkeye_client = OpenAI(
-            api_key=os.getenv("HAWKEYE_API_KEY") or os.getenv("DEFAULT_API_KEY"),
-            base_url=os.getenv("HAWKEYE_BASE_URL") or os.getenv("DEFAULT_BASE_URL")
-        )
-        self.model = os.getenv("HAWKEYE_MODEL") or os.getenv("DEFAULT_MODEL")
+        # 使用 Provider 层创建 LLM 客户端
+        self.provider = ProviderFactory.create_from_env(agent_type="hawkeye")
+        self.model = self.provider.model
 
         # 语言配置：优先使用参数，其次使用环境变量，默认中文
         self.language = language or os.getenv("LANGUAGE", "zh").lower()
