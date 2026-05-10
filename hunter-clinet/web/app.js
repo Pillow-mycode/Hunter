@@ -499,9 +499,6 @@ function onPresetChange(tabName) {
     const selectedValue = presetSelect.value;
 
     if (selectedValue === 'custom') {
-        const form = state.settingsFormData[tabName];
-        form.provider_type = 'custom';
-        saveFormToState(tabName);
         state.settingsFormData[tabName].provider_type = 'custom';
         renderSettingsForm(tabName);
         return;

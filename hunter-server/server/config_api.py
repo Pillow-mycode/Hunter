@@ -64,6 +64,7 @@ def _reload_config():
 
 def _get_agent_config(agent_type: str) -> dict:
     prefix_map = {
+        "default": "DEFAULT",
         "leader": "LEADER",
         "attacker": "ATTACKER",
         "hawkeye": "HAWKEYE",

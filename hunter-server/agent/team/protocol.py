@@ -45,8 +45,8 @@ VALID_MSG_TYPES: frozenset[str] = frozenset({
 @dataclass
 class InterAgentMessage:
     msg_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
-    from_agent: AgentId = ""
-    to_agent: AgentId = ""
+    from_agent: AgentId = "leader"
+    to_agent: AgentId = "leader"
     msg_type: str = ""
     content: str = ""
     task_id: Optional[str] = None

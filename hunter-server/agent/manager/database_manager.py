@@ -427,7 +427,7 @@ class DatabaseManager:
             ''', (session_id, json.dumps(snapshot, ensure_ascii=False)))
             return cursor.lastrowid
 
-    def get_latest_snapshot(self, session_id: str) -> dict:
+    def get_latest_snapshot(self, session_id: str) -> Optional[dict]:
         with self._get_cursor() as cursor:
             cursor.execute('''
                 SELECT * FROM blackboard_snapshots

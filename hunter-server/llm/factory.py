@@ -26,6 +26,7 @@ class ProviderFactory:
     }
 
     _ENV_PREFIX_MAP: Dict[str, str] = {
+        "default": "DEFAULT",
         "leader": "LEADER",
         "attacker": "ATTACKER",
         "hawkeye": "HAWKEYE",
@@ -34,11 +35,6 @@ class ProviderFactory:
 
     _AUTO_DETECT_RULES: Dict[str, str] = {
         "deepseek.com": "deepseek",
-        "dashscope": "dashscope",
-        "aliyuncs.com": "dashscope",
-        "openai.com": "openai",
-        "anthropic.com": "anthropic",
-        "bigmodel.cn": "zhipu",
     }
 
     @classmethod
@@ -49,6 +45,11 @@ class ProviderFactory:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
     ) -> BaseProvider:
+        if not api_key:
+            raise ValueError("api_key is required")
+        if not model:
+            raise ValueError(f"model is required for provider '{provider_type}'")
+
         provider_cls = cls._REGISTRY.get(provider_type)
         if provider_cls is None:
             provider_cls = OpenAICompatProvider
