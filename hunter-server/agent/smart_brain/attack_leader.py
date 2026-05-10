@@ -7,7 +7,9 @@ from agent.pojo.leader_config import AttackLeaderConfig
 from agent.pojo.attack_config import AttackToolMasterConfig
 from agent.smart_brain.attack_tool_master import AttackToolMaster
 from agent.smart_brain.hardcoded_rules import HardcodedRules, RuleResult
+from agent.team.agent_base import AgentBase
 from agent.system.system_command import write_to_logs
+from agent.team.protocol import MSG_DELEGATION, MSG_TASK_RESULT
 
 """
 渗透专家模型
@@ -191,8 +193,10 @@ MESSAGES = {
 }
 
 
-class AttackLeader:
-    def __init__(self, config: AttackLeaderConfig):
+class AttackLeader(AgentBase):
+    AGENT_ID = "leader"
+
+    def __init__(self, config: AttackLeaderConfig, comm_bus=None, blackboard=None):
         self.config = config
         self.system_prompt = config.system_prompt
         self.language = getattr(config, 'language', 'zh')  # 获取语言配置
@@ -229,6 +233,9 @@ class AttackLeader:
         self._on_progress: Optional[Callable] = None
         self.on_need_confirm: Optional[Callable] = None
         self._on_need_input: Optional[Callable] = None
+
+        if comm_bus and blackboard:
+            super().__init__(comm_bus, blackboard)
 
     def _msg(self, key: str, **kwargs) -> str:
         """获取本地化消息"""
@@ -986,6 +993,30 @@ class AttackLeader:
         except (json.JSONDecodeError, Exception) as e:
             write_to_logs(f"渗透专家: 决策失败 - {e}")
             return {"type": "complete", "reason": self._msg("msg_decision_error")}
+
+    def decide(self, context: dict) -> dict:
+        new_msgs = self.drain_inbox()
+        for msg in new_msgs:
+            if msg.msg_type == MSG_TASK_RESULT and msg.context_json:
+                result = msg.context_json
+                self.update_context_with_result(result, msg.content)
+                self._notify_progress(self._msg("msg_weapon_complete", status=result.get("status", "unknown")))
+
+        if self.is_mission_complete():
+            return {"type": "complete", "summary": self._generate_summary() or "任务完成"}
+
+        decision = self.decide_next_action()
+
+        if decision["type"] == "execute_task":
+            return {
+                "type": "delegate",
+                "target": "tool_master",
+                "content": decision.get("instruction", ""),
+            }
+        elif decision["type"] == "complete":
+            return {"type": "complete", "summary": decision.get("reason", "")}
+        else:
+            return {"type": "wait"}
 
     def wait_for_confirm(self, task: dict, message: str) -> bool:
         """等待用户确认"""

@@ -3,13 +3,19 @@ import json
 import time
 
 from agent.pojo.hawkeye_config import HawkeyeConfig
+from agent.team.agent_base import AgentBase
 from llm.compat import parse_json_response
+from agent.team.protocol import MSG_INPUT_ALERT
 
 
-class Hawkeye:
+class Hawkeye(AgentBase):
+    AGENT_ID = "hawkeye"
 
-    def __init__(self, config: HawkeyeConfig):
+    def __init__(self, config: HawkeyeConfig, comm_bus=None, blackboard=None):
         self.config = config
+        self._last_check_output = ""
+        if comm_bus and blackboard:
+            super().__init__(comm_bus, blackboard)
 
 
     def get_response(self, messages):
@@ -35,22 +41,32 @@ class Hawkeye:
     def check(self, result: str):
         """检查结果，带异常处理。每次检查使用独立的消息列表，避免历史堆积。"""
         try:
-            # 每次检查构建全新的消息列表，不累积历史
             messages = [
                 {"role": "system", "content": self.config.prompt},
                 {"role": "user", "content": result}
             ]
-
             json_string = self.get_response(messages)
-
             response_data = parse_json_response(json_string)
             res = response_data.get("result")
-
             print(f"[鹰眼] 解析结果: result={res}")
-
             if res == "true":
                 return True
             return False
         except Exception as e:
             print(f"[鹰眼] 检查异常: {e}")
             return False
+
+    def decide(self, context: dict) -> dict:
+        msgs = self.drain_inbox()
+        for msg in msgs:
+            if msg.msg_type == "delegation" and msg.context_json:
+                output_snippet = msg.context_json.get("output", "")
+                detected = self.check(output_snippet)
+                if detected:
+                    self.send_msg(
+                        to=msg.from_agent,
+                        msg_type=MSG_INPUT_ALERT,
+                        content=f"[鹰眼] 检测到交互提示，进程可能等待输入",
+                        reply_to=msg.msg_id,
+                    )
+        return {"type": "wait"}

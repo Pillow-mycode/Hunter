@@ -7,16 +7,22 @@ import os
 from typing import Optional
 
 from agent.pojo.analyst_config import DataAnalystConfig
+from agent.team.agent_base import AgentBase
 from agent.system.output_handler import clean_ansi_codes, save_output_to_file
+from agent.team.protocol import MSG_ANALYSIS_RESULT
 
 # 获取项目根目录
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-class DataAnalyst:
-    def __init__(self, config: DataAnalystConfig = None):
+class DataAnalyst(AgentBase):
+    AGENT_ID = "data_analyst"
+
+    def __init__(self, config: DataAnalystConfig = None, comm_bus=None, blackboard=None):
         self.config = config or DataAnalystConfig()
         self.system_prompt = self.config.system_prompt
+        if comm_bus and blackboard:
+            super().__init__(comm_bus, blackboard)
 
     def _call_llm(self, content: str) -> str:
         """调用 LLM 分析内容"""
@@ -136,6 +142,22 @@ class DataAnalyst:
         )
 
         return result, file_path
+
+
+    def decide(self, context: dict) -> dict:
+        msgs = self.drain_inbox()
+        for msg in msgs:
+            if msg.msg_type == "analysis_request":
+                output = msg.context_json.get("output", "") if msg.context_json else msg.content
+                result, file_path = self.analyze(output, task_id=msg.task_id or "default")
+                self.send_msg(
+                    to=msg.from_agent,
+                    msg_type=MSG_ANALYSIS_RESULT,
+                    content=result,
+                    reply_to=msg.msg_id,
+                    context_json={"file_path": file_path} if file_path else None,
+                )
+        return {"type": "wait"}
 
 
 # 全局实例（延迟初始化）

@@ -4,8 +4,10 @@ import tempfile
 import threading
 
 from agent.pojo.attack_config import AttackToolMasterConfig
+from agent.team.agent_base import AgentBase
 from agent.system.system_command import write_to_logs, sys_shell
 from agent.system.output_handler import process_long_output
+from agent.team.protocol import MSG_TASK_RESULT
 
 # 获取项目根目录
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,8 +18,10 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 """
 
 
-class AttackToolMaster:
-    def __init__(self, config: AttackToolMasterConfig):
+class AttackToolMaster(AgentBase):
+    AGENT_ID = "tool_master"
+
+    def __init__(self, config: AttackToolMasterConfig, comm_bus=None, blackboard=None):
         self.messages = []
         self.tools = config.tools
         self.config = config
@@ -32,6 +36,9 @@ class AttackToolMaster:
         self.on_progress = None
         # 用户输入回调（用于向用户询问输入）
         self.on_need_input = None
+
+        if comm_bus and blackboard:
+            super().__init__(comm_bus, blackboard)
 
     def _notify_progress(self, message: str):
         """发送进度通知到客户端"""
@@ -145,6 +152,35 @@ class AttackToolMaster:
                     return json.dumps({"type": "error", "content": f"API调用失败（已重试{max_retries}次）: {error_msg}"})
             else:
                 raise e
+
+    def decide(self, context: dict) -> dict:
+        msgs = self.drain_inbox()
+        for msg in msgs:
+            if msg.msg_type == "delegation":
+                task = {
+                    "task_id": msg.task_id or msg.msg_id,
+                    "action": "execute_instruction",
+                    "target": "",
+                    "params": {"instruction": msg.content},
+                }
+                try:
+                    result = self.run(task)
+                    self.send_msg(
+                        to=msg.from_agent,
+                        msg_type=MSG_TASK_RESULT,
+                        content=result.get("summary", ""),
+                        reply_to=msg.msg_id,
+                        context_json=result,
+                    )
+                    self.update_my_status("idle")
+                except Exception as e:
+                    self.send_msg(
+                        to=msg.from_agent,
+                        msg_type=MSG_TASK_RESULT,
+                        content=f"执行失败: {e}",
+                        reply_to=msg.msg_id,
+                    )
+        return {"type": "wait"}
 
     def run(self, task: dict) -> dict:
         """
