@@ -9,7 +9,7 @@ from agent.smart_brain.attack_tool_master import AttackToolMaster
 from agent.smart_brain.hardcoded_rules import HardcodedRules, RuleResult
 from agent.team.agent_base import AgentBase
 from agent.system.system_command import write_to_logs
-from agent.team.protocol import MSG_DELEGATION, MSG_TASK_RESULT
+from agent.team.protocol import MSG_DELEGATION, MSG_TASK_RESULT, MSG_ANALYSIS_RESULT, MSG_INPUT_ALERT
 from llm.token_counter import get_token_counter
 
 """
@@ -96,6 +96,10 @@ MESSAGES = {
         "decision_continue_desc": "需求未满足，继续执行新操作",
         "decision_instruction_desc": "告诉武器大师要做什么（必须是之前没做过的操作）",
         "decision_reason_desc": "为什么要这么做",
+        "decision_outstanding_tasks": "未完成的任务",
+        "decision_team_status": "团队状态",
+        "decision_no_outstanding": "（无）",
+        "decision_parallel_hint": "提示：你可以同时向不同 Agent 派发任务。武器大师忙时，可以先让数据分析员处理已有结果，或让鹰眼监控终端。不要向同一个忙碌的 Agent 重复派发任务。",
         # 初始化上下文提示词
         "init_parse_request": "请解析以下用户请求，提取目标和范围信息。",
         "init_user_request": "用户请求",
@@ -105,92 +109,6 @@ MESSAGES = {
         "init_request_type_desc": "请求类型（full_pentest/vulnerability_scan/specific_test）",
         "init_specific_requirements_desc": "特殊要求列表",
     },
-    "en": {
-        "msg_truncating": "[LLM] Message too long, truncating...",
-        "msg_calling_model": "[LLM] Calling model {model}... (attempt {attempt}/{max_retries})",
-        "msg_model_complete": "[LLM] Model response complete",
-        "msg_api_retry": "[LLM] API call failed, retrying in {wait_time} seconds...",
-        "msg_api_failed": "[LLM] API call failed: {error}",
-        "msg_reply": "[Reply] {message}",
-        "msg_received_request": "[Penetration Expert] Received request: {request}",
-        "msg_parsing_target": "[Penetration Expert] Parsing target...",
-        "msg_target": "[Penetration Expert] Target: {target}",
-        "msg_target_unspecified": "Not specified",
-        "msg_start_decision": "[Penetration Expert] Starting dynamic decision process...",
-        "msg_decision": "[Penetration Expert] Decision: {reason}",
-        "msg_instruction": "[Penetration Expert] Instruction: {instruction}",
-        "msg_task_complete": "[Penetration Expert] Task complete: {reason}",
-        "msg_task_done": "[Penetration Expert] Task complete",
-        "msg_pentest_complete": "[Penetration Expert] Penetration test complete",
-        "msg_max_steps": "[Penetration Expert] Maximum step limit reached",
-        "msg_too_many_failures": "[Penetration Expert] Too many consecutive failures",
-        "msg_no_progress": "[Penetration Expert] No progress for multiple steps",
-        "msg_weapon_received": "[Weapon Master] Received instruction: {instruction}",
-        "msg_weapon_skipped": "[Weapon Master] Task skipped: {reason}",
-        "msg_weapon_aborted": "[Weapon Master] Task aborted: {reason}",
-        "msg_weapon_complete": "[Weapon Master] Task complete: {status}",
-        "msg_weapon_result": "[Weapon Master] Result: {summary}",
-        "msg_weapon_executing": "[Weapon Master] Executing task {task_id}: {action} -> {target}",
-        "msg_weapon_task_skipped": "[Weapon Master] Task {task_id} skipped: {reason}",
-        "msg_weapon_task_aborted": "[Weapon Master] Task {task_id} aborted: {reason}",
-        "msg_weapon_task_complete": "[Weapon Master] Task {task_id} complete: {status}",
-        "msg_weapon_task_result": "[Weapon Master] Result: {summary}",
-        "msg_need_confirm": "Confirmation needed",
-        "msg_user_skipped": "User skipped",
-        "msg_user_skipped_input": "User skipped input",
-        "msg_scan_complete_findings": "Scan complete, findings above.",
-        "msg_scan_complete_no_findings": "Scan complete, no obvious issues found.",
-        "msg_fix_vulnerabilities": "Recommend fixing discovered vulnerabilities",
-        "msg_close_ports": "Recommend closing unnecessary open ports",
-        "msg_no_findings": "No findings yet",
-        "msg_first_conversation": "(This is the first conversation)",
-        "msg_user_label": "User",
-        "msg_me_label": "Me",
-        "msg_no_tools": "No tools available",
-        "msg_custom_tools_header": "### Custom Tools (read documentation first)",
-        "msg_kali_tools_header": "### Kali Built-in Tools (can use directly)",
-        "msg_scan_done": "Scan executed",
-        "msg_none": "None",
-        "msg_step": "Step {step}",
-        "msg_result": "Result",
-        "msg_decision_error": "Decision error, terminating execution",
-        "msg_need_info": "Weapon Master needs information",
-        "msg_input_skip": "Please enter (enter 'skip' to skip this task)",
-        "msg_continue_confirm": "Continue? (y/n)",
-        "msg_task_label": "Task",
-        # Decision prompts
-        "decision_user_request": "User Original Request",
-        "decision_conversation_history": "Conversation History",
-        "decision_current_status": "Current Status",
-        "decision_target": "Target",
-        "decision_steps_executed": "Steps Executed",
-        "decision_current_findings": "Current Findings",
-        "decision_executed_operations": "Executed Operations",
-        "decision_last_result": "Last Step Detailed Result",
-        "decision_available_tools": "Available Tools",
-        "decision_think_like_human": "Think like a human",
-        "decision_q1": "What does the user want?",
-        "decision_q2": "What have I done? What results did I get?",
-        "decision_q3": "Is the user's need satisfied?",
-        "decision_important_principles": "Important Principles",
-        "decision_no_repeat": "Don't repeat operations already done (check 'Executed Operations')",
-        "decision_no_same_retry": "If an operation failed, don't retry with the same method, try a different approach or give up",
-        "decision_stop_if_stuck": "If you've tried your best but can't get more information, stop and report current results",
-        "decision_return_json": "Return JSON",
-        "decision_complete_desc": "Need satisfied, or cannot continue",
-        "decision_complete_reason": "What to say to user (report results)",
-        "decision_continue_desc": "Need not satisfied, continue with new operation",
-        "decision_instruction_desc": "Tell Weapon Master what to do (must be an operation not done before)",
-        "decision_reason_desc": "Why do this",
-        # Init context prompts
-        "init_parse_request": "Please parse the following user request and extract target and scope information.",
-        "init_user_request": "User Request",
-        "init_return_json": "Return JSON format",
-        "init_target_desc": "Main target (domain or IP, empty string if none)",
-        "init_scope_desc": "Target scope list",
-        "init_request_type_desc": "Request type (full_pentest/vulnerability_scan/specific_test)",
-        "init_specific_requirements_desc": "Special requirements list",
-    }
 }
 
 
@@ -200,12 +118,10 @@ class AttackLeader(AgentBase):
     def __init__(self, config: AttackLeaderConfig, comm_bus=None, blackboard=None):
         self.config = config
         self.system_prompt = config.system_prompt
-        self.language = getattr(config, 'language', 'zh')  # 获取语言配置
         self.messages = []
         self.messages_lock = threading.Lock()
 
-        # 传递语言配置给武器大师
-        weapon_config = AttackToolMasterConfig(language=self.language)
+        weapon_config = AttackToolMasterConfig()
         self.weapon_master = AttackToolMaster(weapon_config)
 
         self.context = {
@@ -241,8 +157,7 @@ class AttackLeader(AgentBase):
 
     def _msg(self, key: str, **kwargs) -> str:
         """获取本地化消息"""
-        lang = self.language if self.language in MESSAGES else "zh"
-        template = MESSAGES[lang].get(key, MESSAGES["zh"].get(key, key))
+        template = MESSAGES["zh"].get(key, key)
         return template.format(**kwargs) if kwargs else template
 
     @property
@@ -640,6 +555,24 @@ class AttackLeader(AgentBase):
 
         return "\n".join(lines)
 
+    def _format_team_status(self, team_status: dict) -> str:
+        """格式化团队状态为提示词文本"""
+        if not team_status:
+            return ""
+        name_map = {
+            "leader": "渗透专家",
+            "tool_master": "武器大师",
+            "data_analyst": "数据分析员",
+            "hawkeye": "鹰眼",
+        }
+        lines = []
+        for aid, qsize in team_status.items():
+            name = name_map.get(aid, aid)
+            busy = qsize > 0
+            status = "busy" if busy else "idle"
+            lines.append(f"- {name} ({aid}): {status}")
+        return f"## {self._msg('decision_team_status')}\n" + "\n".join(lines) if lines else ""
+
     def _generate_summary(self) -> str:
         """生成执行摘要"""
         history = self.context.get("history", [])
@@ -682,7 +615,7 @@ class AttackLeader(AgentBase):
             self._notify_progress(self._msg("msg_too_many_failures"))
             return True
 
-        # 检查无进展次数
+        # 检查无进展次数（相同输出重复出现）
         if self.context.get("no_progress_count", 0) >= 5:
             self._notify_progress(self._msg("msg_no_progress"))
             return True
@@ -722,6 +655,7 @@ class AttackLeader(AgentBase):
         # 更新发现
         if result.get("status") == "success":
             self.context["consecutive_failures"] = 0
+
             self.context["no_progress_count"] = 0
 
             findings = result.get("findings") or {}
@@ -918,9 +852,13 @@ class AttackLeader(AgentBase):
                 "findings": {}
             }
 
-    def decide_next_action(self) -> dict:
+    def decide_next_action(self, outstanding_tasks: str = "", team_status: dict = None) -> dict:
         """
         根据当前上下文决定下一步行动
+
+        Args:
+            outstanding_tasks: 格式化后的未完成任务列表字符串
+            team_status: 各 Agent 收件箱队列深度 {"leader": 0, "tool_master": 2, ...}
 
         Returns:
             {
@@ -930,6 +868,7 @@ class AttackLeader(AgentBase):
                 "message": "消息"  # 如果是 need_user_decision
             }
         """
+        team_status = team_status or {}
         # 1. 硬编码规则检查
         rule_result = self.rules.check_loop_limit(self.context)
         if rule_result.should_abort:
@@ -955,6 +894,9 @@ class AttackLeader(AgentBase):
         # 获取用户原始请求
         user_request = self.context.get("user_request", "")
 
+        # 构建团队状态文本
+        team_status_text = self._format_team_status(team_status)
+
         self.messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": f"""
@@ -968,6 +910,11 @@ class AttackLeader(AgentBase):
 - {self._msg("decision_target")}: {self.context['target'] or self._msg("msg_target_unspecified")}
 - {self._msg("decision_steps_executed")}: {self.context['action_count']}
 - {self._msg("decision_current_findings")}: {findings_summary}
+
+{team_status_text}
+
+## {self._msg("decision_outstanding_tasks")}
+{outstanding_tasks or self._msg("decision_no_outstanding")}
 
 {f"## {self._msg('decision_executed_operations')}{chr(10)}{recent_history}" if self.context['action_count'] > 0 else ""}
 
@@ -983,11 +930,14 @@ class AttackLeader(AgentBase):
 1. {self._msg("decision_q1")}
 2. {self._msg("decision_q2")}
 3. {self._msg("decision_q3")}
+4. 用户问的具体问题已经得到答案了吗？如果上一步结果直接回答了用户的问题，就应该 complete，不要再继续。
 
 **{self._msg("decision_important_principles")}:**
 - {self._msg("decision_no_repeat")}
 - {self._msg("decision_no_same_retry")}
 - {self._msg("decision_stop_if_stuck")}
+- 用户问什么就答什么。如果用户问"IP是多少"，拿到IP就完成。不要画蛇添足继续扫描。
+- {self._msg("decision_parallel_hint")}
 
 {self._msg("decision_return_json")}:
 
@@ -1000,9 +950,11 @@ class AttackLeader(AgentBase):
 {self._msg("decision_continue_desc")}:
 {{
     "type": "execute_task",
+    "target": "tool_master",
     "instruction": "{self._msg("decision_instruction_desc")}",
     "reason": "{self._msg("decision_reason_desc")}"
 }}
+（target 可选: tool_master（执行工具命令）、data_analyst（分析长输出）、hawkeye（监控终端交互））
 """}
         ]
 
@@ -1015,23 +967,48 @@ class AttackLeader(AgentBase):
             return {"type": "complete", "reason": self._msg("msg_decision_error")}
 
     def decide(self, context: dict) -> dict:
+        # 从 AgentLoop 上下文同步用户请求（AgentLoop 不走旧的 run() 方法）
+        mission = context.get("mission", {})
+        if isinstance(mission, dict):
+            user_request = mission.get("objective", "")
+            if user_request:
+                self.context["user_request"] = user_request
+
         new_msgs = self.drain_inbox()
         for msg in new_msgs:
             if msg.msg_type == MSG_TASK_RESULT and msg.context_json:
                 result = msg.context_json
                 self.update_context_with_result(result, msg.content)
                 self._notify_progress(self._msg("msg_weapon_complete", status=result.get("status", "unknown")))
+            elif msg.msg_type == MSG_ANALYSIS_RESULT:
+                self.update_context_with_result(
+                    msg.context_json or {}, msg.content
+                )
+            elif msg.msg_type == MSG_INPUT_ALERT:
+                self._notify_progress(f"[鹰眼] 检测到交互提示: {msg.content[:120]}")
+
+        # 守卫：没有新消息 + 有未完成任务在等待 → 不调 LLM，直接 wait
+        has_new_info = len(new_msgs) > 0
+        outstanding = context.get("outstanding_tasks", "")
+        has_pending_tasks = outstanding and outstanding != "(无)"
+        if not has_new_info and has_pending_tasks:
+            return {"type": "wait"}
 
         if self.is_mission_complete():
             return {"type": "complete", "summary": self._generate_summary() or "任务完成"}
 
-        decision = self.decide_next_action()
+        decision = self.decide_next_action(
+            outstanding_tasks=context.get("outstanding_tasks", ""),
+            team_status=context.get("team_status", {}),
+        )
 
         if decision["type"] == "execute_task":
+            instruction = decision.get("instruction", "")
+            target = decision.get("target", "tool_master")
             return {
                 "type": "delegate",
-                "target": "tool_master",
-                "content": decision.get("instruction", ""),
+                "target": target if target in ("tool_master", "data_analyst", "hawkeye") else "tool_master",
+                "content": instruction,
             }
         elif decision["type"] == "complete":
             return {"type": "complete", "summary": decision.get("reason", "")}

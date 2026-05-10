@@ -5,13 +5,6 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from agent.team.protocol import (
-    InterAgentMessage,
-    MSG_TASK_RESULT,
-    MSG_ANALYSIS_RESULT,
-    MSG_ACK,
-)
-
 # ─── OutstandingTask ──────────────────────────────────────────────
 
 @dataclass
@@ -39,7 +32,8 @@ class AgentLoop(threading.Thread):
         self.mission_complete = threading.Event()
         self._stop_flag = threading.Event()
         self._result: dict = {}
-        self._pending_inbox: list[InterAgentMessage] = []
+        # Let the agent check the stop flag during long-running operations
+        self.agent._abort_event = self._stop_flag
 
     # ── 主循环 ────────────────────────────────────────────────
 
@@ -54,37 +48,37 @@ class AgentLoop(threading.Thread):
     # ── Phase 1: POLL ─────────────────────────────────────────
 
     def _phase_poll(self):
-        msgs = self.agent.drain_inbox()
-        for msg in msgs:
-            if msg.msg_type in (MSG_TASK_RESULT, MSG_ANALYSIS_RESULT, MSG_ACK):
-                self._match_reply(msg)
-            else:
-                self._pending_inbox.append(msg)
-
-    def _match_reply(self, msg: InterAgentMessage):
-        reply_to = msg.reply_to
-        if reply_to and reply_to in self.outstanding_tasks:
-            self.outstanding_tasks[reply_to].status = "COMPLETED"
+        # Messages are drained and processed by decide() in _phase_think.
+        # We only check queue depth here for observability.
+        pass
 
     # ── Phase 2: PROCESS ──────────────────────────────────────
 
     def _phase_process(self):
         now = datetime.now()
+        has_work = False
         for task_id, task in list(self.outstanding_tasks.items()):
             if task.status != "COMPLETED" and (now - task.sent_at).total_seconds() > task.timeout:
                 task.status = "TIMEOUT"
                 self.blackboard.add_activity(
                     f"任务 {task_id[:8]} (→{task.target_agent}) 超时"
                 )
-        self.agent.update_my_status("busy")
+            if task.status == "PENDING":
+                has_work = True
+        if has_work or self.outstanding_tasks:
+            self.agent.update_my_status("busy")
 
     # ── Phase 3: THINK ────────────────────────────────────────
 
     def _phase_think(self):
+        prev = getattr(self, "_current_decision", {})
+        # 上次决策是 wait 且有未完成任务 → 阻塞等新消息到达
+        if prev.get("type") == "wait" and self.outstanding_tasks:
+            self._wait_for_inbox_message(timeout=30.0)
+
         context = {
             "mission": self.blackboard.read("mission"),
             "outstanding_tasks": self._format_outstanding_tasks(),
-            "new_inbox": self._summarize_inbox(),
             "blackboard_summary": self.blackboard.get_summary(),
             "team_status": self.comm_bus.get_team_status(),
             "history": [],
@@ -131,8 +125,6 @@ class AgentLoop(threading.Thread):
             self.mission_complete.set()
             self.agent.update_my_status("idle")
 
-        self._pending_inbox.clear()
-
     # ── 辅助 ──────────────────────────────────────────────────
 
     def _format_outstanding_tasks(self) -> str:
@@ -148,13 +140,16 @@ class AgentLoop(threading.Thread):
             )
         return "\n".join(lines)
 
-    def _summarize_inbox(self) -> str:
-        if not self._pending_inbox:
-            return "(无)"
-        lines = []
-        for msg in self._pending_inbox[-5:]:
-            lines.append(f"来自 {msg.from_agent}: {msg.content[:120]}")
-        return "\n".join(lines)
+    def _wait_for_inbox_message(self, timeout: float = 30.0):
+        """阻塞等待收件箱有新消息，超时后返回让超时检测有机会运行"""
+        import queue
+        try:
+            inbox = self.comm_bus.inboxes[self.agent.AGENT_ID]
+            msg = inbox.get(timeout=timeout)
+            # 放回队列，让 decide() 的 drain_inbox() 能正常处理
+            inbox.put(msg)
+        except queue.Empty:
+            pass
 
     def _should_stop(self) -> bool:
         return self._stop_flag.is_set() or self.mission_complete.is_set()
