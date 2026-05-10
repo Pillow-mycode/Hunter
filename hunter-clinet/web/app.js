@@ -154,7 +154,7 @@ function t(key) {
 
 // 全局状态
 const state = {
-    serverUrl: 'localhost:8000',
+    serverUrl: window.location.host || 'localhost:8000',
     connected: false,
     currentSessionId: null,  // 当前显示的会话 ID
     websockets: {},          // 每个会话的 WebSocket 连接 { session_id: WebSocket }
@@ -264,14 +264,18 @@ function autoResizeTextarea() {
 
 // 连接服务器
 async function connectServer() {
-    const serverUrl = elements.serverUrl().value.trim();
-    if (!serverUrl) return;
+    let serverUrl = elements.serverUrl().value.trim();
+    if (!serverUrl) {
+        serverUrl = window.location.host || 'localhost:8000';
+        elements.serverUrl().value = serverUrl;
+    }
 
     state.serverUrl = serverUrl;
     updateServerStatus('connecting');
 
     try {
-        const response = await fetch(`http://${serverUrl}/`);
+        const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        const response = await fetch(`${protocol}//${serverUrl}/status`);
         if (response.ok) {
             state.connected = true;
             updateServerStatus('online');
@@ -340,7 +344,7 @@ async function sendMessage() {
         // 如果没有当前会话，先创建会话
         if (!state.currentSessionId) {
             console.log(`[发送消息] 创建新会话`);
-            const response = await fetch(`http://${state.serverUrl}/session`, {
+            const response = await fetch(`${location.protocol}//${state.serverUrl}/session`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: message.substring(0, 30) })
@@ -1028,7 +1032,7 @@ function newChat() {
 // 从服务端加载会话列表
 async function loadSessionsFromServer() {
     try {
-        const response = await fetch(`http://${state.serverUrl}/sessions`);
+        const response = await fetch(`${location.protocol}//${state.serverUrl}/sessions`);
         if (!response.ok) throw new Error(t('getSessionsFailed'));
 
         const sessions = await response.json();
@@ -1101,7 +1105,7 @@ async function loadSession(sessionId) {
 
     try {
         // 从服务器获取会话的所有消息
-        const response = await fetch(`http://${state.serverUrl}/session/${sessionId}/messages`);
+        const response = await fetch(`${location.protocol}//${state.serverUrl}/session/${sessionId}/messages`);
         if (!response.ok) throw new Error(t('getHistoryFailed'));
 
         const data = await response.json();
@@ -1393,7 +1397,7 @@ async function deleteSession(sessionId) {
 
     try {
         // 调用服务端删除会话
-        const response = await fetch(`http://${state.serverUrl}/session/${sessionId}`, {
+        const response = await fetch(`${location.protocol}//${state.serverUrl}/session/${sessionId}`, {
             method: 'DELETE'
         });
 

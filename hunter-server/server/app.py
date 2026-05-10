@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # 添加项目根目录到路径
@@ -321,7 +322,7 @@ app.add_middleware(
 
 # ============== HTTP 接口 ==============
 
-@app.get("/")
+@app.get("/status")
 async def root():
     """服务状态"""
     db = get_database()
@@ -618,6 +619,13 @@ def build_reply_content(report: dict) -> str:
                 parts.append(f"  {i}. {rec}")
 
     return "\n".join(parts) if parts else "任务已完成"
+
+
+# ============== 静态文件服务 ==============
+
+CLIENT_DIR = os.path.normpath(os.path.join(PROJECT_ROOT, "..", "hunter-clinet", "web"))
+if os.path.isdir(CLIENT_DIR):
+    app.mount("/", StaticFiles(directory=CLIENT_DIR, html=True), name="client")
 
 
 # ============== 启动入口 ==============
