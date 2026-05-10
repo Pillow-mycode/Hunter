@@ -15,6 +15,7 @@ class OutstandingTask:
     status: str = "PENDING"
     sent_at: datetime = field(default_factory=datetime.now)
     timeout: float = 300
+    step_id: str = ""  # PlanStep id，P2 状态机使用
 
 
 # ─── AgentLoop ────────────────────────────────────────────────────
@@ -106,6 +107,7 @@ class AgentLoop(threading.Thread):
                 task_id=msg.msg_id,
                 target_agent=decision["target"],
                 instruction=decision["content"],
+                step_id=decision.get("step_id", ""),
             )
             self.blackboard.add_activity(
                 f"{self.agent.AGENT_ID} → {decision['target']}: {decision['content'][:80]}"

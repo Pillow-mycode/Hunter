@@ -3,11 +3,19 @@ import json
 import threading
 from typing import Callable, Optional
 
-from agent.pojo.leader_config import AttackLeaderConfig
+from typing import Optional
+
+from agent.pojo.leader_config import (
+    AttackLeaderConfig,
+    SYSTEM_CLASSIFY_PROMPT,
+    SYSTEM_PLAN_PROMPT,
+    SYSTEM_REVIEW_PROMPT,
+)
 from agent.pojo.attack_config import AttackToolMasterConfig
 from agent.smart_brain.attack_tool_master import AttackToolMaster
 from agent.smart_brain.hardcoded_rules import HardcodedRules, RuleResult
 from agent.team.agent_base import AgentBase
+from agent.team.plan import Plan, PlanStep
 from agent.system.system_command import write_to_logs
 from agent.team.protocol import MSG_DELEGATION, MSG_TASK_RESULT, MSG_ANALYSIS_RESULT, MSG_INPUT_ALERT
 from llm.token_counter import get_token_counter
@@ -145,6 +153,10 @@ class AttackLeader(AgentBase):
         }
 
         self.rules = HardcodedRules()
+
+        # 状态机（AgentLoop decide() 路径使用）
+        self.state = "idle"  # idle | executing | reviewing | complete
+        self.active_plan: Optional[Plan] = None
 
         # 回调函数
         self._on_progress: Optional[Callable] = None
@@ -967,13 +979,14 @@ class AttackLeader(AgentBase):
             return {"type": "complete", "reason": self._msg("msg_decision_error")}
 
     def decide(self, context: dict) -> dict:
-        # 从 AgentLoop 上下文同步用户请求（AgentLoop 不走旧的 run() 方法）
+        # 从 AgentLoop 上下文同步用户请求
         mission = context.get("mission", {})
         if isinstance(mission, dict):
             user_request = mission.get("objective", "")
             if user_request:
                 self.context["user_request"] = user_request
 
+        # 处理收件箱
         new_msgs = self.drain_inbox()
         for msg in new_msgs:
             if msg.msg_type == MSG_TASK_RESULT and msg.context_json:
@@ -987,33 +1000,217 @@ class AttackLeader(AgentBase):
             elif msg.msg_type == MSG_INPUT_ALERT:
                 self._notify_progress(f"[鹰眼] 检测到交互提示: {msg.content[:120]}")
 
-        # 守卫：没有新消息 + 有未完成任务在等待 → 不调 LLM，直接 wait
+        # P1 守卫：无新消息 + 有未完成任务 → wait
         has_new_info = len(new_msgs) > 0
         outstanding = context.get("outstanding_tasks", "")
         has_pending_tasks = outstanding and outstanding != "(无)"
         if not has_new_info and has_pending_tasks:
             return {"type": "wait"}
 
-        if self.is_mission_complete():
-            return {"type": "complete", "summary": self._generate_summary() or "任务完成"}
+        # 状态分发
+        if self.state == "executing":
+            return self._handle_executing(context, new_msgs)
+        elif self.state == "reviewing":
+            return self._handle_reviewing(context)
 
-        decision = self.decide_next_action(
-            outstanding_tasks=context.get("outstanding_tasks", ""),
-            team_status=context.get("team_status", {}),
+        # idle 或未知状态 → 重新分类
+        self.state = "idle"
+        return self._handle_idle(context, new_msgs)
+
+    # ── 状态处理器 ──────────────────────────────────────────
+
+    def _handle_idle(self, context: dict, new_msgs: list) -> dict:
+        user_request = self.context.get("user_request", "")
+        if not user_request:
+            return {"type": "wait"}
+
+        classification = self._classify_request(user_request)
+        req_type = classification.get("type", "simple_query")
+
+        if req_type in ("simple_query", "chat"):
+            return self._handle_simple_request(classification, user_request)
+
+        # 渗透任务 → 生成计划
+        plan = self._generate_plan(user_request)
+        if plan is None or not plan.steps:
+            self.state = "complete"
+            return {"type": "complete", "summary": classification.get("reason", "无法生成有效计划")}
+
+        self.active_plan = plan
+        self.state = "executing"
+        return self._dispatch_next_step()
+
+    def _handle_simple_request(self, classification: dict, user_request: str) -> dict:
+        req_type = classification.get("type", "simple_query")
+        reason = classification.get("reason", "")
+
+        if req_type == "chat":
+            self.state = "complete"
+            return {"type": "complete", "summary": reason or "你好！有什么可以帮您的吗？"}
+
+        # simple_query: 生成一个 1 步计划
+        plan = self._generate_plan(user_request)
+        if plan and plan.steps:
+            self.active_plan = plan
+            self.state = "executing"
+            return self._dispatch_next_step()
+
+        # 无法生成计划 → 直接 complete
+        self.state = "complete"
+        return {"type": "complete", "summary": reason or "查询完成"}
+
+    def _handle_executing(self, context: dict, new_msgs: list) -> dict:
+        plan = self.active_plan
+        if plan is None:
+            self.state = "idle"
+            return {"type": "wait"}
+
+        # 处理刚收到的结果 → 更新对应 step
+        for msg in new_msgs:
+            if msg.msg_type == MSG_TASK_RESULT:
+                result = msg.context_json or {}
+                if plan.current_idx < len(plan.steps):
+                    current_step = plan.steps[plan.current_idx]
+                    current_step.status = "DONE" if result.get("status") == "success" else "FAILED"
+                    current_step.result_summary = (result.get("summary", "")
+                                                   or result.get("raw_output", "")
+                                                   or "")[:200]
+                    plan.current_idx += 1
+
+        # 有未完成任务 → 等待
+        outstanding = context.get("outstanding_tasks", "")
+        if outstanding and outstanding != "(无)":
+            return {"type": "wait"}
+
+        # 计划耗尽 → 回顾
+        if plan.is_exhausted():
+            self.state = "reviewing"
+            return self._handle_reviewing(context)
+
+        # 下一步
+        return self._dispatch_next_step()
+
+    def _handle_reviewing(self, context: dict) -> dict:
+        plan = self.active_plan
+        user_request = self.context.get("user_request", "")
+        review = self._review_results(user_request, plan) if plan else {"done": True, "summary": "任务完成"}
+
+        if review.get("done", True):
+            self.state = "complete"
+            return {"type": "complete", "summary": review.get("summary", "任务完成")}
+
+        # 需要更多 → 重新规划
+        new_plan = self._generate_plan(user_request, previous_plan=plan, additional_context=review.get("reason", ""))
+        if new_plan and new_plan.steps:
+            self.active_plan = new_plan
+            self.state = "executing"
+            return self._dispatch_next_step()
+
+        self.state = "complete"
+        return {"type": "complete", "summary": review.get("summary", "任务完成")}
+
+    def _dispatch_next_step(self) -> dict:
+        plan = self.active_plan
+        if plan is None:
+            self.state = "idle"
+            return {"type": "wait"}
+
+        step = plan.next_step()
+        if step is None:
+            self.state = "reviewing"
+            return {"type": "wait"}
+
+        step.status = "DISPATCHED"
+        return {
+            "type": "delegate",
+            "target": step.target_agent,
+            "content": step.instruction,
+            "step_id": step.id,
+        }
+
+    # ── LLM 调用 ────────────────────────────────────────────
+
+    def _classify_request(self, user_request: str) -> dict:
+        prompt = (
+            f'分析以下用户请求，判断它属于哪种类型。\n\n'
+            f'用户请求："{user_request}"\n\n'
+            f'类型定义：\n'
+            f'- simple_query: 信息查询（"我的IP是多少"、"显示文件"、"当前时间"）。\n'
+            f'- pentest_task: 安全/渗透测试（"扫描端口"、"检测漏洞"、"爆破密码"）。\n'
+            f'- chat: 闲聊/问候（"你好"、"你是谁"）。\n\n'
+            f'返回 JSON：\n'
+            f'{{"type": "simple_query|pentest_task|chat", "reason": "判断依据"}}'
+        )
+        self.messages = [
+            {"role": "system", "content": SYSTEM_CLASSIFY_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            return json.loads(self.get_response())
+        except Exception:
+            return {"type": "simple_query", "reason": "分类失败，默认简单查询"}
+
+    def _generate_plan(self, user_request: str, previous_plan: Plan = None,
+                       additional_context: str = "") -> Optional[Plan]:
+        parts = [f'## 用户请求\n"{user_request}"']
+
+        if previous_plan:
+            parts.append(f"\n## 之前的计划\n目标: {previous_plan.goal}")
+            for s in previous_plan.steps:
+                icon = "✓" if s.status == "DONE" else "✗"
+                parts.append(f"- {icon} {s.instruction[:80]}: {s.result_summary[:60]}")
+            if additional_context:
+                parts.append(f"\n{additional_context}")
+
+        findings = self._summarize_findings()
+        parts.append(f"\n## 当前发现\n{findings}")
+
+        tools = self._get_available_tools_summary()
+        parts.append(f"\n## 可用工具\n{tools}")
+
+        parts.append(
+            '\n---\n请生成一个执行计划，包含 1-8 个步骤。每步给出完整的自然语言指令。'
+            '步骤之间尽量独立。返回 JSON：\n'
+            '{"goal": "计划目标", "steps": ['
+            '{"id":"s1","instruction":"...","target_agent":"tool_master","depends_on":[]},'
+            '...]}'
         )
 
-        if decision["type"] == "execute_task":
-            instruction = decision.get("instruction", "")
-            target = decision.get("target", "tool_master")
-            return {
-                "type": "delegate",
-                "target": target if target in ("tool_master", "data_analyst", "hawkeye") else "tool_master",
-                "content": instruction,
-            }
-        elif decision["type"] == "complete":
-            return {"type": "complete", "summary": decision.get("reason", "")}
-        else:
-            return {"type": "wait"}
+        self.messages = [
+            {"role": "system", "content": SYSTEM_PLAN_PROMPT},
+            {"role": "user", "content": "\n".join(parts)},
+        ]
+        try:
+            data = json.loads(self.get_response())
+            steps = [PlanStep(**s) for s in data.get("steps", [])]
+            return Plan(
+                goal=data.get("goal", ""),
+                complexity="simple" if len(steps) <= 1 else "complex",
+                steps=steps,
+            )
+        except Exception:
+            return None
+
+    def _review_results(self, user_request: str, plan: Plan) -> dict:
+        lines = [f"- {'✓' if s.status == 'DONE' else '✗'} {s.instruction}: {s.result_summary[:100]}"
+                 for s in plan.steps]
+
+        prompt = (
+            f'审视以下计划的执行结果，判断用户需求是否满足。\n\n'
+            f'用户请求："{user_request}"\n'
+            f'计划目标：{plan.goal}\n\n'
+            f'执行结果：\n' + "\n".join(lines) + '\n\n'
+            f'返回 JSON：\n'
+            f'{{"done": true/false, "summary": "对用户说的话", "reason": "为什么"}}'
+        )
+        self.messages = [
+            {"role": "system", "content": SYSTEM_REVIEW_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            return json.loads(self.get_response())
+        except Exception:
+            return {"done": True, "summary": "执行完成"}
 
     def wait_for_confirm(self, task: dict, message: str) -> bool:
         """等待用户确认"""
