@@ -327,8 +327,10 @@ function updateUILanguage() {
     const modalTitle = document.getElementById('settingsModalTitle');
     if (modalTitle) modalTitle.textContent = t('settings');
 
-    // 如果设置面板打开，重新渲染表单以更新标签
-    if (state.activeSettingsTab) renderSettingsForm(state.activeSettingsTab);
+    // 如果设置面板打开且有表单数据，重新渲染表单以更新标签
+    if (state.activeSettingsTab && Object.keys(state.settingsFormData).length > 0) {
+        renderSettingsForm(state.activeSettingsTab);
+    }
 }
 
 // 切换语言
@@ -343,22 +345,32 @@ function toggleLanguage() {
 // ============== 设置面板 ==============
 
 function openSettings() {
-    const modal = elements.settingsModal();
-    modal.style.display = 'flex';
+    console.log('[Settings] openSettings called');
+    try {
+        const modal = elements.settingsModal();
+        if (!modal) {
+            console.error('[Settings] settingsModal element not found');
+            return;
+        }
+        modal.style.display = 'flex';
 
-    Promise.all([loadConfig(), loadPresets()]).then(() => {
-        initSettingsFormData();
-        state.activeSettingsTab = 'leader';
-        updateSettingsTabs();
-        renderSettingsForm('leader');
-        updateUILanguage();
-    }).catch(e => {
-        console.error('加载设置失败:', e);
-    });
+        Promise.all([loadConfig(), loadPresets()]).then(() => {
+            console.log('[Settings] config loaded');
+            initSettingsFormData();
+            state.activeSettingsTab = 'leader';
+            updateSettingsTabs();
+            renderSettingsForm('leader');
+            updateUILanguage();
+        }).catch(e => {
+            console.error('[Settings] 加载设置失败:', e);
+        });
 
-    modal.onclick = function(e) {
-        if (e.target === modal) closeSettings();
-    };
+        modal.onclick = function(e) {
+            if (e.target === modal) closeSettings();
+        };
+    } catch (e) {
+        console.error('[Settings] openSettings error:', e);
+    }
 }
 
 function closeSettings() {
