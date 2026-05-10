@@ -352,7 +352,7 @@ function openSettings() {
             console.error('[Settings] settingsModal element not found');
             return;
         }
-        modal.style.display = 'flex';
+        modal.classList.remove('hidden');
 
         Promise.all([loadConfig(), loadPresets()]).then(() => {
             console.log('[Settings] config loaded');
@@ -374,7 +374,7 @@ function openSettings() {
 }
 
 function closeSettings() {
-    elements.settingsModal().style.display = 'none';
+    elements.settingsModal().classList.add('hidden');
     const resultEl = elements.testResult();
     if (resultEl) {
         resultEl.textContent = '';
@@ -632,7 +632,7 @@ async function saveConfig() {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         const modal = elements.settingsModal();
-        if (modal && modal.style.display === 'flex') {
+        if (modal && !modal.classList.contains('hidden')) {
             closeSettings();
         }
     }
