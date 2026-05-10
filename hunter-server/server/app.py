@@ -18,6 +18,7 @@ from typing import Dict, Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -45,6 +46,7 @@ from agent.team.comm_bus import CommunicationBus
 from agent.team.blackboard import Blackboard
 from agent.team.agent_loop import AgentLoop
 from agent.team.protocol import InterAgentMessage
+from llm.factory import ProviderFactory
 from server.config_api import router as config_router
 
 
@@ -231,6 +233,21 @@ class SessionManager:
         leader.on_progress = None  # 进度通过 CommBus 推送
         leader.on_need_input = on_need_input
         leader.on_need_confirm = on_need_confirm
+
+        # 4.5 设置流式输出回调：LLM token → WebSocket → 前端打字机效果
+        def make_stream_callback(agent_name: str):
+            def on_stream_chunk(chunk: str):
+                asyncio.run_coroutine_threadsafe(
+                    session_manager.send_message(session_id, "stream", {
+                        "agent": agent_name,
+                        "chunk": chunk,
+                    }),
+                    main_loop
+                )
+            return on_stream_chunk
+
+        leader.stream_callback = make_stream_callback("leader")
+        # leader setter 自动传播到 weapon_master
 
         # 5. 为每个 Agent 创建 AgentLoop
         loops = {
@@ -434,17 +451,55 @@ app.add_middleware(
 
 # ============== HTTP 接口 ==============
 
+def _check_provider_health(agent_type: str) -> dict:
+    """检查单个 Agent 的 Provider 连通性（在 executor 中调用）"""
+    import time
+    try:
+        provider = ProviderFactory.create_from_env(agent_type=agent_type)
+        provider_type = getattr(provider, "PROVIDER_TYPE", "unknown")
+        model = provider.model
+        start = time.time()
+        ok = provider.health_check()
+        latency_ms = round((time.time() - start) * 1000)
+        return {
+            "agent": agent_type,
+            "provider_type": provider_type,
+            "model": model,
+            "status": "ok" if ok else "error",
+            "latency_ms": latency_ms,
+        }
+    except Exception as e:
+        return {
+            "agent": agent_type,
+            "provider_type": "unknown",
+            "model": "",
+            "status": "error",
+            "error": str(e),
+        }
+
+
 @app.get("/status")
 async def root():
-    """服务状态"""
+    """服务状态（含各 Agent Provider 连通性检查）"""
     db = get_database()
     stats = db.get_stats()
+
+    main_loop = asyncio.get_running_loop()
+    agent_types = ["leader", "attacker", "hawkeye", "analyst"]
+
+    async def check_one(agent_type: str) -> dict:
+        return await main_loop.run_in_executor(None, _check_provider_health, agent_type)
+
+    results = await asyncio.gather(*[check_one(t) for t in agent_types])
+    providers = {r.pop("agent"): r for r in results}
+
     return {
         "service": "Hunter Server",
         "status": "running",
         "version": "3.0.0",
         "mode": "persistent",
-        "stats": stats
+        "stats": stats,
+        "providers": providers,
     }
 
 
@@ -488,6 +543,31 @@ async def get_session_messages(session_id: str):
         "session_status": session.get("status", "idle"),
         "messages": messages
     }
+
+
+@app.get("/session/{session_id}/export")
+async def export_session(session_id: str, format: str = "markdown"):
+    """导出会话为 Markdown 或纯文本文件"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    messages = session_manager.get_messages(session_id)
+
+    if format == "markdown":
+        content = _format_markdown(session, messages)
+        return Response(
+            content=content.encode("utf-8"),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="session_{session_id}.md"'}
+        )
+    else:
+        content = _format_text(session, messages)
+        return Response(
+            content=content.encode("utf-8"),
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="session_{session_id}.txt"'}
+        )
 
 
 @app.delete("/session/{session_id}")
@@ -754,6 +834,100 @@ def build_reply_content(report: dict) -> str:
                 parts.append(f"  {i}. {rec}")
 
     return "\n".join(parts) if parts else "任务已完成"
+
+
+# ============== 会话导出 ==============
+
+def _format_markdown(session: dict, messages: list) -> str:
+    """将会话消息格式化为 Markdown"""
+    lines = [
+        f"# {session.get('name', 'Hunter Session')}",
+        f"",
+        f"**会话 ID**: `{session.get('id', 'N/A')}`",
+        f"**状态**: {session.get('status', 'N/A')}",
+        f"**创建时间**: {session.get('created_at', 'N/A')}",
+        f"",
+        f"---",
+        f"",
+    ]
+    for msg in messages:
+        role = msg.get("msg_type", "unknown")
+        content = msg.get("content", "")
+        ts = msg.get("created_at", "")[:19]  # 截断到秒
+        if not content:
+            continue
+
+        if role == "user":
+            lines.append(f"### 用户 ({ts})")
+            lines.append(f"")
+            lines.append(f"> {content}")
+            lines.append(f"")
+        elif role == "command":
+            lines.append(f"### 命令 ({ts})")
+            lines.append(f"")
+            lines.append(f"```bash")
+            lines.append(content)
+            lines.append(f"```")
+            lines.append(f"")
+        elif role in ("reply", "assistant"):
+            lines.append(f"### 助手 ({ts})")
+            lines.append(f"")
+            lines.append(content)
+            lines.append(f"")
+        elif role == "error":
+            lines.append(f"### 错误 ({ts})")
+            lines.append(f"")
+            lines.append(f"> **错误**: {content}")
+            lines.append(f"")
+        elif role == "file":
+            lines.append(f"### 文件 ({ts})")
+            lines.append(f"")
+            lines.append(f"> 文件已保存: `{content}`")
+            lines.append(f"")
+        elif role == "system":
+            lines.append(f"### 系统 ({ts})")
+            lines.append(f"")
+            lines.append(f"> {content}")
+            lines.append(f"")
+        else:
+            lines.append(f"### {role} ({ts})")
+            lines.append(f"")
+            lines.append(content)
+            lines.append(f"")
+    return "\n".join(lines)
+
+
+def _format_text(session: dict, messages: list) -> str:
+    """将会话消息格式化为纯文本"""
+    lines = [
+        f"{'='*60}",
+        f"  {session.get('name', 'Hunter Session')}",
+        f"{'='*60}",
+        f"会话 ID: {session.get('id', 'N/A')}",
+        f"状态: {session.get('status', 'N/A')}",
+        f"创建时间: {session.get('created_at', 'N/A')}",
+        f"{'='*60}",
+        f"",
+    ]
+    for msg in messages:
+        role = msg.get("msg_type", "unknown")
+        content = msg.get("content", "")
+        ts = msg.get("created_at", "")[:19]
+        if not content:
+            continue
+
+        role_names = {
+            "user": "用户", "command": "命令", "reply": "助手",
+            "assistant": "助手", "error": "错误", "file": "文件",
+            "system": "系统", "progress": "进度",
+        }
+        role_name = role_names.get(role, role)
+
+        lines.append(f"[{role_name}] {ts}")
+        lines.append(f"{'-'*40}")
+        lines.append(content)
+        lines.append(f"")
+    return "\n".join(lines)
 
 
 # ============== 静态文件服务 ==============

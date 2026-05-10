@@ -42,6 +42,13 @@
             <div class="chat-header">
                 <h2 id="chatTitle">Hunter 渗透测试助手</h2>
                 <span class="task-id" id="currentTaskId"></span>
+                <div class="export-dropdown">
+                    <button class="export-btn" id="exportBtn" title="导出会话">导出</button>
+                    <div class="export-menu">
+                        <button onclick="exportSession('markdown')">Markdown</button>
+                        <button onclick="exportSession('text')">纯文本</button>
+                    </div>
+                </div>
             </div>
 
             <div class="chat-messages" id="chatMessages">
@@ -83,7 +90,7 @@
         </main>
     </div>
 
-    <!-- 设置面板模态框 -->
+    <!-- 设置面板模态框（默认配置） -->
     <div class="modal-overlay hidden" id="settingsModal">
         <div class="modal-container" id="settingsModalContainer">
             <div class="modal-header">
@@ -91,13 +98,6 @@
                 <button class="modal-close" onclick="closeSettings()">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="settings-tabs" id="settingsTabs">
-                    <button class="settings-tab active" data-tab="leader">渗透专家</button>
-                    <button class="settings-tab" data-tab="attacker">武器大师</button>
-                    <button class="settings-tab" data-tab="hawkeye">鹰眼</button>
-                    <button class="settings-tab" data-tab="analyst">数据分析员</button>
-                    <button class="settings-tab" data-tab="default">默认配置</button>
-                </div>
                 <div class="settings-tab-content" id="settingsTabContent">
                 </div>
             </div>
@@ -106,6 +106,34 @@
                 <div class="modal-footer-buttons">
                     <button class="btn-test" id="btnTest" onclick="testConnection()">测试连接</button>
                     <button class="btn-save" id="btnSave" onclick="saveConfig()">保存</button>
+                    <button class="btn-advanced" id="btnAdvanced" onclick="openAdvancedSettings()">高级配置</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 高级配置模态框（4 个 Agent 详细配置） -->
+    <div class="modal-overlay hidden" id="advancedSettingsModal">
+        <div class="modal-container" id="advancedSettingsModalContainer">
+            <div class="modal-header">
+                <h2 id="advancedSettingsModalTitle">高级配置</h2>
+                <button class="modal-close" onclick="closeAdvancedSettings()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-tabs" id="advancedSettingsTabs">
+                    <button class="settings-tab active" data-tab="leader">渗透专家</button>
+                    <button class="settings-tab" data-tab="attacker">武器大师</button>
+                    <button class="settings-tab" data-tab="hawkeye">鹰眼</button>
+                    <button class="settings-tab" data-tab="analyst">数据分析员</button>
+                </div>
+                <div class="settings-tab-content" id="advancedSettingsTabContent">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="test-result" id="advancedTestResult"></span>
+                <div class="modal-footer-buttons">
+                    <button class="btn-test" id="advancedBtnTest" onclick="testConnection()">测试连接</button>
+                    <button class="btn-save" id="advancedBtnSave" onclick="saveConfig()">保存</button>
                 </div>
             </div>
         </div>

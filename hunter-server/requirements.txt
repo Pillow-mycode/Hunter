@@ -7,6 +7,7 @@ pyte>=0.8.0
 fastapi>=0.109.0
 uvicorn>=0.27.0
 pydantic>=2.0.0
+tiktoken>=0.7.0
 
 # 客户端依赖 (Windows)
 httpx>=0.26.0

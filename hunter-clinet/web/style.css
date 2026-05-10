@@ -783,7 +783,8 @@ body {
     }
 
     .btn-test,
-    .btn-save {
+    .btn-save,
+    .btn-advanced {
         flex: 1;
     }
 }
@@ -814,6 +815,105 @@ body {
 @keyframes typing {
     0%, 60%, 100% { transform: translateY(0); }
     30% { transform: translateY(-10px); }
+}
+
+/* ============== 流式输出 ============== */
+
+.message.assistant.streaming-active {
+    border-left: 2px solid var(--accent);
+}
+
+.message.assistant.streaming-done {
+    border-left: 2px solid transparent;
+}
+
+.streaming-header {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    font-style: italic;
+}
+
+.streaming-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.streaming-active .streaming-text::after {
+    content: '|';
+    animation: blink 1s step-end infinite;
+    color: var(--accent);
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+/* ============== 导出按钮 ============== */
+
+.export-dropdown {
+    position: relative;
+    margin-left: auto;
+}
+
+.export-btn {
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+}
+
+.export-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.export-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    z-index: 100;
+    min-width: 120px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.export-dropdown:hover .export-menu {
+    display: block;
+}
+
+.export-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.85rem;
+    text-align: left;
+    transition: background 0.15s;
+}
+
+.export-menu button:hover {
+    background: var(--bg-tertiary);
+}
+
+.export-menu button:first-child {
+    border-radius: 6px 6px 0 0;
+}
+
+.export-menu button:last-child {
+    border-radius: 0 0 6px 6px;
 }
 
 /* ============== 设置面板 ============== */
@@ -1036,6 +1136,17 @@ body {
 .btn-test:hover {
     background: var(--accent);
     border-color: var(--accent);
+}
+
+.btn-advanced {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+}
+
+.btn-advanced:hover {
+    background: var(--accent);
+    color: white;
 }
 
 .btn-test:disabled,

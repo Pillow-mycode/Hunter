@@ -476,9 +476,31 @@ def _safe_get_output(output_ref):
         return output_ref
 
 
+import re
+
+_SENSITIVE_PATTERNS = [
+    # Command-line password arguments
+    (re.compile(r'(-p|--password|--pass|--pwd)\s+\S+', re.I), r'\1 [FILTERED]'),
+    (re.compile(r'(password|passwd|pwd)\s*=\s*\S+', re.I), r'\1=[FILTERED]'),
+    # API keys in commands (e.g. --api-key sk-xxx)
+    (re.compile(r'(--api-key|--apikey|--api_key)\s+\S+', re.I), r'\1 [FILTERED]'),
+    # SSH passwords
+    (re.compile(r'sshpass\s+-p\s+\S+', re.I), 'sshpass -p [FILTERED]'),
+]
+
+
+def _sanitize_for_log(text: str) -> str:
+    """掩码日志中的敏感信息（密码、API Key 等）。"""
+    for pattern, replacement in _SENSITIVE_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def write_to_logs(content):
     path = "../logs/command_log_progress.txt"
     os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    content = _sanitize_for_log(str(content))
 
     with open(path, 'a', encoding='utf-8') as f:
         import datetime

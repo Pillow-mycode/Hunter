@@ -100,7 +100,15 @@ const i18n = {
         settingsAttacker: '武器大师',
         settingsHawkeye: '鹰眼',
         settingsAnalyst: '数据分析员',
-        settingsDefault: '默认配置'
+        settingsDefault: '默认配置',
+        loading: '加载中',
+        loadFailed: '加载失败，请检查服务器连接',
+        advancedConfig: '高级配置',
+        advancedConfigTitle: '高级配置',
+        // 导出
+        exportSession: '导出',
+        exportMarkdown: 'Markdown',
+        exportText: '纯文本',
     },
     en: {
         title: 'Hunter - Automated Penetration Testing',
@@ -189,7 +197,15 @@ const i18n = {
         settingsAttacker: 'Weapon Master',
         settingsHawkeye: 'Hawkeye',
         settingsAnalyst: 'Data Analyst',
-        settingsDefault: 'Default Config'
+        settingsDefault: 'Default Config',
+        loading: 'Loading',
+        loadFailed: 'Load failed, check server connection',
+        advancedConfig: 'Advanced Config',
+        advancedConfigTitle: 'Advanced Configuration',
+        // Export
+        exportSession: 'Export',
+        exportMarkdown: 'Markdown',
+        exportText: 'Plain Text',
     }
 };
 
@@ -210,8 +226,9 @@ const state = {
     language: localStorage.getItem('hunter_language') || 'zh',  // 从 localStorage 读取语言设置
     configData: null,         // 配置缓存
     presets: [],              // 预设厂商列表
-    activeSettingsTab: 'leader',  // 当前设置标签页
-    settingsFormData: {}      // 表单数据缓存
+    settingsFormData: {},      // 表单数据缓存
+    activeModal: null,         // 'main' | 'advanced' | null
+    advancedActiveTab: 'leader' // 高级模态框当前标签
 };
 
 // DOM 元素
@@ -227,11 +244,17 @@ const elements = {
     chatTitle: () => document.getElementById('chatTitle'),
     settingsModal: () => document.getElementById('settingsModal'),
     settingsModalTitle: () => document.getElementById('settingsModalTitle'),
-    settingsTabs: () => document.getElementById('settingsTabs'),
     settingsTabContent: () => document.getElementById('settingsTabContent'),
     testResult: () => document.getElementById('testResult'),
     btnTest: () => document.getElementById('btnTest'),
-    btnSave: () => document.getElementById('btnSave')
+    btnSave: () => document.getElementById('btnSave'),
+    // 高级模态框
+    advancedSettingsModal: () => document.getElementById('advancedSettingsModal'),
+    advancedSettingsTabs: () => document.getElementById('advancedSettingsTabs'),
+    advancedSettingsTabContent: () => document.getElementById('advancedSettingsTabContent'),
+    advancedTestResult: () => document.getElementById('advancedTestResult'),
+    advancedBtnTest: () => document.getElementById('advancedBtnTest'),
+    advancedBtnSave: () => document.getElementById('advancedBtnSave')
 };
 
 // 初始化
@@ -245,13 +268,13 @@ document.addEventListener('DOMContentLoaded', () => {
         langBtn.addEventListener('click', toggleLanguage);
     }
 
-    // 绑定设置面板标签页点击事件
-    const settingsTabs = document.getElementById('settingsTabs');
-    if (settingsTabs) {
-        settingsTabs.addEventListener('click', function(e) {
+    // 绑定高级模态框标签页点击事件
+    const advancedSettingsTabs = document.getElementById('advancedSettingsTabs');
+    if (advancedSettingsTabs) {
+        advancedSettingsTabs.addEventListener('click', function(e) {
             const tab = e.target.closest('.settings-tab');
             if (tab) {
-                switchSettingsTab(tab.dataset.tab);
+                switchAdvancedSettingsTab(tab.dataset.tab);
             }
         });
     }
@@ -315,21 +338,25 @@ function updateUILanguage() {
     const settingsBtn = document.getElementById('settingsBtn');
     if (settingsBtn) settingsBtn.title = t('settingsGear');
 
-    // 更新设置面板标签
-    const tabs = document.querySelectorAll('.settings-tab');
-    const tabKeys = ['leader', 'attacker', 'hawkeye', 'analyst', 'default'];
-    const tabI18nKeys = ['settingsLeader', 'settingsAttacker', 'settingsHawkeye', 'settingsAnalyst', 'settingsDefault'];
-    tabs.forEach((tab, i) => {
-        if (tabKeys[i]) tab.textContent = t(tabI18nKeys[i]);
+    // 更新高级模态框标签
+    const advTabs = document.querySelectorAll('#advancedSettingsTabs .settings-tab');
+    const advTabKeys = ['leader', 'attacker', 'hawkeye', 'analyst'];
+    const advTabI18nKeys = ['settingsLeader', 'settingsAttacker', 'settingsHawkeye', 'settingsAnalyst'];
+    advTabs.forEach((tab, i) => {
+        if (advTabKeys[i]) tab.textContent = t(advTabI18nKeys[i]);
     });
 
     // 更新设置面板标题
     const modalTitle = document.getElementById('settingsModalTitle');
     if (modalTitle) modalTitle.textContent = t('settings');
+    const advTitle = document.getElementById('advancedSettingsModalTitle');
+    if (advTitle) advTitle.textContent = t('advancedConfigTitle');
 
     // 如果设置面板打开且有表单数据，重新渲染表单以更新标签
-    if (state.activeSettingsTab && Object.keys(state.settingsFormData).length > 0) {
-        renderSettingsForm(state.activeSettingsTab);
+    if (state.activeModal === 'advanced' && Object.keys(state.settingsFormData).length > 0) {
+        renderSettingsForm(state.advancedActiveTab, '-adv');
+    } else if (state.activeModal === 'main' && Object.keys(state.settingsFormData).length > 0) {
+        renderSettingsForm('default', '');
     }
 }
 
@@ -344,6 +371,15 @@ function toggleLanguage() {
 
 // ============== 设置面板 ==============
 
+function getModalPrefix() {
+    return state.activeModal === 'advanced' ? '-adv' : '';
+}
+
+function getModalActiveTab() {
+    if (state.activeModal === 'advanced') return state.advancedActiveTab;
+    return 'default';
+}
+
 function openSettings() {
     console.log('[Settings] openSettings called');
     try {
@@ -352,17 +388,22 @@ function openSettings() {
             console.error('[Settings] settingsModal element not found');
             return;
         }
+        state.activeModal = 'main';
         modal.classList.remove('hidden');
 
+        // 显示加载中状态
+        const container = elements.settingsTabContent();
+        container.innerHTML = '<p style=\"text-align:center;color:var(--text-secondary);padding:40px\">' + t('loading') + '...</p>';
+
+        // 异步加载服务端配置，加载成功后渲染默认配置表单
         Promise.all([loadConfig(), loadPresets()]).then(() => {
             console.log('[Settings] config loaded');
             initSettingsFormData();
-            state.activeSettingsTab = 'leader';
-            updateSettingsTabs();
-            renderSettingsForm('leader');
+            renderSettingsForm('default', '');
             updateUILanguage();
         }).catch(e => {
             console.error('[Settings] 加载设置失败:', e);
+            container.innerHTML = '<p style=\"text-align:center;color:var(--error);padding:40px\">' + t('loadFailed') + '</p>';
         });
 
         modal.onclick = function(e) {
@@ -375,6 +416,7 @@ function openSettings() {
 
 function closeSettings() {
     elements.settingsModal().classList.add('hidden');
+    state.activeModal = null;
     const resultEl = elements.testResult();
     if (resultEl) {
         resultEl.textContent = '';
@@ -383,14 +425,16 @@ function closeSettings() {
 }
 
 async function loadConfig() {
-    const response = await fetch(`//${state.serverUrl}/api/config`);
+    const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    const response = await fetch(`${proto}//${state.serverUrl}/api/config`);
     if (!response.ok) throw new Error('Failed to load config');
     state.configData = await response.json();
     return state.configData;
 }
 
 async function loadPresets() {
-    const response = await fetch(`//${state.serverUrl}/api/config/presets`);
+    const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    const response = await fetch(`${proto}//${state.serverUrl}/api/config/presets`);
     if (!response.ok) throw new Error('Failed to load presets');
     state.presets = await response.json();
     return state.presets;
@@ -410,28 +454,54 @@ function initSettingsFormData() {
     });
 }
 
-function updateSettingsTabs() {
-    const tabs = document.querySelectorAll('.settings-tab');
+function updateAdvancedSettingsTabs() {
+    const tabs = document.querySelectorAll('#advancedSettingsTabs .settings-tab');
     tabs.forEach(tab => {
-        tab.classList.toggle('active', tab.dataset.tab === state.activeSettingsTab);
+        tab.classList.toggle('active', tab.dataset.tab === state.advancedActiveTab);
     });
 }
 
-function switchSettingsTab(tabName) {
-    saveFormToState(state.activeSettingsTab);
-    state.activeSettingsTab = tabName;
-    updateSettingsTabs();
-    renderSettingsForm(tabName);
+function switchAdvancedSettingsTab(tabName) {
+    saveFormToState(state.advancedActiveTab, '-adv');
+    state.advancedActiveTab = tabName;
+    updateAdvancedSettingsTabs();
+    renderSettingsForm(tabName, '-adv');
 }
 
-function saveFormToState(tabName) {
+function openAdvancedSettings() {
+    saveFormToState('default', '');
+    state.activeModal = 'advanced';
+    const modal = elements.advancedSettingsModal();
+    if (modal) {
+        modal.classList.remove('hidden');
+        renderSettingsForm(state.advancedActiveTab, '-adv');
+        updateAdvancedSettingsTabs();
+        modal.onclick = function(e) {
+            if (e.target === modal) closeAdvancedSettings();
+        };
+    }
+}
+
+function closeAdvancedSettings() {
+    saveFormToState(state.advancedActiveTab, '-adv');
+    elements.advancedSettingsModal().classList.add('hidden');
+    state.activeModal = 'main';
+    const resultEl = elements.advancedTestResult();
+    if (resultEl) {
+        resultEl.textContent = '';
+        resultEl.className = 'test-result';
+    }
+}
+
+function saveFormToState(tabName, idPrefix) {
+    idPrefix = idPrefix || '';
     const form = state.settingsFormData[tabName];
     if (!form) return;
 
-    const preset = document.getElementById('settings-preset');
-    const baseUrl = document.getElementById('settings-base-url');
-    const model = document.getElementById('settings-model');
-    const apiKey = document.getElementById('settings-api-key');
+    const preset = document.getElementById('settings-preset' + idPrefix);
+    const baseUrl = document.getElementById('settings-base-url' + idPrefix);
+    const model = document.getElementById('settings-model' + idPrefix);
+    const apiKey = document.getElementById('settings-api-key' + idPrefix);
 
     if (preset) form.provider_type = preset.value;
     if (baseUrl) form.base_url = baseUrl.value;
@@ -439,50 +509,54 @@ function saveFormToState(tabName) {
     if (apiKey) form.api_key = apiKey.value;
 }
 
-function renderSettingsForm(tabName) {
-    const container = elements.settingsTabContent();
+function renderSettingsForm(tabName, idPrefix) {
+    idPrefix = idPrefix || '';
+    const container = idPrefix === '-adv' ? elements.advancedSettingsTabContent() : elements.settingsTabContent();
     const form = state.settingsFormData[tabName];
     if (!form) return;
-
-    const presetOptions = state.presets.map(p =>
-        '<option value="' + escapeHtml(p.provider_type) + '">' + escapeHtml(p.provider_type) + '</option>'
-    ).join('');
 
     const currentPreset = state.presets.some(p => p.provider_type === form.provider_type)
         ? form.provider_type
         : 'custom';
     const isCustom = currentPreset === 'custom';
 
+    const presetOptions = state.presets.map(p => {
+        const sel = p.provider_type === currentPreset ? ' selected' : '';
+        return '<option value="' + escapeHtml(p.provider_type) + '"' + sel + '>' + escapeHtml(p.provider_type) + '</option>';
+    }).join('');
+
+    const modelListId = isCustom ? '' : 'model-suggestions' + idPrefix;
+
     container.innerHTML =
-        '<datalist id="model-suggestions">' +
+        '<datalist id="model-suggestions' + idPrefix + '">' +
             (isCustom ? '' : getModelSuggestions(form.provider_type)) +
         '</datalist>' +
 
         '<div class="settings-field">' +
-            '<label for="settings-preset">' + t('presetLabel') + '</label>' +
-            '<select id="settings-preset" onchange="onPresetChange(\'' + tabName + '\')">' +
+            '<label for="settings-preset' + idPrefix + '">' + t('presetLabel') + '</label>' +
+            '<select id="settings-preset' + idPrefix + '" onchange="onPresetChange(\'' + tabName + '\', \'' + idPrefix + '\')">' +
                 presetOptions +
                 '<option value="custom"' + (isCustom ? ' selected' : '') + '>' + t('presetCustom') + '</option>' +
             '</select>' +
         '</div>' +
 
         '<div class="settings-field">' +
-            '<label for="settings-base-url">' + t('apiUrl') + '</label>' +
-            '<input type="text" id="settings-base-url" value="' + escapeHtml(form.base_url) + '" placeholder="https://api.example.com/v1">' +
+            '<label for="settings-base-url' + idPrefix + '">' + t('apiUrl') + '</label>' +
+            '<input type="text" id="settings-base-url' + idPrefix + '" value="' + escapeHtml(form.base_url) + '" placeholder="https://api.example.com/v1">' +
         '</div>' +
 
         '<div class="settings-field">' +
-            '<label for="settings-model">' + t('modelName') + '</label>' +
-            '<input type="text" id="settings-model" list="' + (isCustom ? '' : 'model-suggestions') + '" value="' + escapeHtml(form.model) + '" placeholder="model-name">' +
+            '<label for="settings-model' + idPrefix + '">' + t('modelName') + '</label>' +
+            '<input type="text" id="settings-model' + idPrefix + '" list="' + modelListId + '" value="' + escapeHtml(form.model) + '" placeholder="model-name">' +
         '</div>' +
 
         '<div class="settings-field">' +
-            '<label for="settings-api-key">' + t('apiKey') + '</label>' +
-            '<input type="password" id="settings-api-key" value="' + escapeHtml(form.api_key) + '" placeholder="' + (form.has_existing_key ? t('apiKeyPlaceholder') : t('apiKeyPlaceholderEmpty')) + '">' +
+            '<label for="settings-api-key' + idPrefix + '">' + t('apiKey') + '</label>' +
+            '<input type="password" id="settings-api-key' + idPrefix + '" autocomplete="off" value="' + escapeHtml(form.api_key) + '" placeholder="' + (form.has_existing_key ? t('apiKeyPlaceholder') : t('apiKeyPlaceholderEmpty')) + '">' +
         '</div>';
 
     // 设置预设下拉值
-    const presetSelect = document.getElementById('settings-preset');
+    const presetSelect = document.getElementById('settings-preset' + idPrefix);
     if (presetSelect && isCustom) {
         presetSelect.value = 'custom';
     }
@@ -494,13 +568,14 @@ function getModelSuggestions(providerType) {
     return preset.recommended_models.map(m => '<option value="' + escapeHtml(m) + '">').join('');
 }
 
-function onPresetChange(tabName) {
-    const presetSelect = document.getElementById('settings-preset');
+function onPresetChange(tabName, idPrefix) {
+    idPrefix = idPrefix || '';
+    const presetSelect = document.getElementById('settings-preset' + idPrefix);
     const selectedValue = presetSelect.value;
 
     if (selectedValue === 'custom') {
         state.settingsFormData[tabName].provider_type = 'custom';
-        renderSettingsForm(tabName);
+        renderSettingsForm(tabName, idPrefix);
         return;
     }
 
@@ -513,16 +588,18 @@ function onPresetChange(tabName) {
     form.model = (preset.recommended_models && preset.recommended_models.length > 0)
         ? preset.recommended_models[0] : '';
 
-    renderSettingsForm(tabName);
+    renderSettingsForm(tabName, idPrefix);
 }
 
 async function testConnection() {
-    const tabName = state.activeSettingsTab;
-    saveFormToState(tabName);
+    const tabName = getModalActiveTab();
+    const idPrefix = getModalPrefix();
+    saveFormToState(tabName, idPrefix);
     const form = state.settingsFormData[tabName];
 
-    const resultEl = elements.testResult();
-    const btnTest = elements.btnTest();
+    const isAdvanced = state.activeModal === 'advanced';
+    const resultEl = isAdvanced ? elements.advancedTestResult() : elements.testResult();
+    const btnTest = isAdvanced ? elements.advancedBtnTest() : elements.btnTest();
 
     if (!form.base_url || !form.model || !form.api_key) {
         resultEl.textContent = t('testFailed') + ': 请填写 API 地址、模型和 API Key';
@@ -535,7 +612,8 @@ async function testConnection() {
     btnTest.disabled = true;
 
     try {
-        const response = await fetch('//' + state.serverUrl + '/api/config/test', {
+        const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        const response = await fetch(proto + '//' + state.serverUrl + '/api/config/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -564,11 +642,13 @@ async function testConnection() {
 }
 
 async function saveConfig() {
-    const tabName = state.activeSettingsTab;
-    saveFormToState(tabName);
+    const tabName = getModalActiveTab();
+    const idPrefix = getModalPrefix();
+    saveFormToState(tabName, idPrefix);
 
-    const resultEl = elements.testResult();
-    const btnSave = elements.btnSave();
+    const isAdvanced = state.activeModal === 'advanced';
+    const resultEl = isAdvanced ? elements.advancedTestResult() : elements.testResult();
+    const btnSave = isAdvanced ? elements.advancedBtnSave() : elements.btnSave();
 
     resultEl.textContent = t('savingConfig');
     resultEl.className = 'test-result testing';
@@ -590,7 +670,8 @@ async function saveConfig() {
     });
 
     try {
-        const response = await fetch('//' + state.serverUrl + '/api/config', {
+        const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        const response = await fetch(proto + '//' + state.serverUrl + '/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
@@ -613,7 +694,7 @@ async function saveConfig() {
                 }
             });
 
-            setTimeout(() => renderSettingsForm(state.activeSettingsTab), 0);
+            setTimeout(() => renderSettingsForm(tabName, idPrefix), 0);
         } else {
             throw new Error('Save returned not ok');
         }
@@ -625,9 +706,14 @@ async function saveConfig() {
     }
 }
 
-// ESC 关闭设置面板
+// ESC 关闭设置面板（先关高级，后关主设置）
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
+        const advModal = elements.advancedSettingsModal();
+        if (advModal && !advModal.classList.contains('hidden')) {
+            closeAdvancedSettings();
+            return;
+        }
         const modal = elements.settingsModal();
         if (modal && !modal.classList.contains('hidden')) {
             closeSettings();
@@ -726,7 +812,8 @@ async function sendMessage() {
         // 如果没有当前会话，先创建会话
         if (!state.currentSessionId) {
             console.log(`[发送消息] 创建新会话`);
-            const response = await fetch(`${location.protocol}//${state.serverUrl}/session`, {
+        const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+            const response = await fetch(`${proto}//${state.serverUrl}/session`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: message.substring(0, 30) })
@@ -863,6 +950,12 @@ function handleServerMessage(sessionId, data) {
 
     console.log(`[消息处理] 会话 ${sessionId}, 类型: ${type}, 是否当前会话: ${isCurrentSession}`);
 
+    // 非流式消息到达时，结束当前流式渲染
+    const streamFinalizers = ['progress', 'need_input', 'need_confirm', 'task_completed', 'error', 'cancelled'];
+    if (isCurrentSession && streamFinalizers.includes(type)) {
+        finalizeStreamElement();
+    }
+
     switch (type) {
         case 'connected':
             // WebSocket 连接成功
@@ -883,6 +976,12 @@ function handleServerMessage(sessionId, data) {
             // 只在当前会话时，移除旧的活跃进度容器标记，为新任务准备
             if (isCurrentSession) {
                 deactivateProgressContainers();
+            }
+            break;
+
+        case 'stream':
+            if (isCurrentSession) {
+                handleStreamChunk(payload.agent, payload.chunk);
             }
             break;
 
@@ -979,6 +1078,35 @@ function handleServerMessage(sessionId, data) {
                 showSendButton();
             }
             break;
+    }
+}
+
+// 流式消息处理
+function handleStreamChunk(agentName, chunk) {
+    let streamEl = document.querySelector('.message.assistant.streaming-active');
+    if (!streamEl) {
+        removeTypingIndicator();
+        streamEl = document.createElement('div');
+        streamEl.className = 'message assistant streaming-active';
+        const agentLabel = agentName === 'leader' ? 'Penetration Expert' : 'Weapon Master';
+        streamEl.innerHTML =
+            `<div class="message-avatar"><img src="hunter.png" alt="Hunter"></div>
+            <div class="message-content">
+                <div class="streaming-header">${agentLabel} thinking...</div>
+                <div class="streaming-text"></div>
+            </div>`;
+        elements.chatMessages().appendChild(streamEl);
+    }
+    const textEl = streamEl.querySelector('.streaming-text');
+    textEl.textContent += chunk;
+    scrollToBottom();
+}
+
+function finalizeStreamElement() {
+    const streamEl = document.querySelector('.message.assistant.streaming-active');
+    if (streamEl) {
+        streamEl.classList.remove('streaming-active');
+        streamEl.classList.add('streaming-done');
     }
 }
 
@@ -1414,7 +1542,8 @@ function newChat() {
 // 从服务端加载会话列表
 async function loadSessionsFromServer() {
     try {
-        const response = await fetch(`${location.protocol}//${state.serverUrl}/sessions`);
+        const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        const response = await fetch(`${proto}//${state.serverUrl}/sessions`);
         if (!response.ok) throw new Error(t('getSessionsFailed'));
 
         const sessions = await response.json();
@@ -1487,7 +1616,8 @@ async function loadSession(sessionId) {
 
     try {
         // 从服务器获取会话的所有消息
-        const response = await fetch(`${location.protocol}//${state.serverUrl}/session/${sessionId}/messages`);
+        const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        const response = await fetch(`${proto}//${state.serverUrl}/session/${sessionId}/messages`);
         if (!response.ok) throw new Error(t('getHistoryFailed'));
 
         const data = await response.json();
@@ -1779,7 +1909,8 @@ async function deleteSession(sessionId) {
 
     try {
         // 调用服务端删除会话
-        const response = await fetch(`${location.protocol}//${state.serverUrl}/session/${sessionId}`, {
+        const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        const response = await fetch(`${proto}//${state.serverUrl}/session/${sessionId}`, {
             method: 'DELETE'
         });
 
@@ -1813,6 +1944,39 @@ async function deleteSession(sessionId) {
 function scrollToBottom() {
     const container = elements.chatMessages();
     container.scrollTop = container.scrollHeight;
+}
+
+// 会话导出
+async function exportSession(format) {
+    const sessionId = state.currentSessionId;
+    if (!sessionId) {
+        console.log('[导出] 没有活动会话');
+        return;
+    }
+    try {
+        const serverUrl = getServerUrl();
+        const resp = await fetch(`${serverUrl}/session/${sessionId}/export?format=${format}`);
+        if (!resp.ok) {
+            console.error(`[导出] 请求失败: ${resp.status}`);
+            return;
+        }
+        const blob = await resp.blob();
+        const ext = format === 'markdown' ? 'md' : 'txt';
+        downloadBlob(blob, `session_${sessionId}.${ext}`);
+    } catch (e) {
+        console.error('[导出] 导出失败:', e);
+    }
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 // 移除所有进度容器的活跃标记

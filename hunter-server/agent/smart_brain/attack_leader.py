@@ -10,6 +10,7 @@ from agent.smart_brain.hardcoded_rules import HardcodedRules, RuleResult
 from agent.team.agent_base import AgentBase
 from agent.system.system_command import write_to_logs
 from agent.team.protocol import MSG_DELEGATION, MSG_TASK_RESULT
+from llm.token_counter import get_token_counter
 
 """
 渗透专家模型
@@ -233,6 +234,7 @@ class AttackLeader(AgentBase):
         self._on_progress: Optional[Callable] = None
         self.on_need_confirm: Optional[Callable] = None
         self._on_need_input: Optional[Callable] = None
+        self._stream_callback: Optional[Callable] = None
 
         if comm_bus and blackboard:
             super().__init__(comm_bus, blackboard)
@@ -254,6 +256,16 @@ class AttackLeader(AgentBase):
         self.weapon_master.on_progress = callback
 
     @property
+    def stream_callback(self) -> Optional[Callable]:
+        return self._stream_callback
+
+    @stream_callback.setter
+    def stream_callback(self, callback: Optional[Callable]):
+        """设置流式回调，同时传递给武器大师"""
+        self._stream_callback = callback
+        self.weapon_master.stream_callback = callback
+
+    @property
     def on_need_input(self) -> Optional[Callable]:
         return self._on_need_input
 
@@ -265,22 +277,24 @@ class AttackLeader(AgentBase):
 
     def get_response(self) -> str:
         """获取 LLM 响应，带重试机制"""
-        max_total_length = 150000
+        token_counter = get_token_counter()
+        context_limit = self.config.provider.get_context_limit()
+        max_tokens = int(context_limit * 0.9)  # 留 10% 给响应
         messages = self.messages.copy()
-        current_length = sum(len(str(msg.get("content", ""))) for msg in messages)
+        current_tokens = token_counter.count_messages(messages)
 
-        if current_length > max_total_length:
+        if current_tokens > max_tokens:
             self._notify_progress(self._msg("msg_truncating"))
             system_messages = [msg for msg in messages if msg["role"] == "system"]
             other_messages = [msg for msg in messages if msg["role"] != "system"]
             truncated_messages = []
-            accumulated_length = sum(len(str(msg.get("content", ""))) for msg in system_messages)
+            accumulated_tokens = token_counter.count_messages(system_messages)
             for msg in reversed(other_messages):
-                msg_length = len(str(msg.get("content", "")))
-                if accumulated_length + msg_length > max_total_length:
+                msg_tokens = token_counter.count_messages([msg])
+                if accumulated_tokens + msg_tokens > max_tokens:
                     break
                 truncated_messages.append(msg)
-                accumulated_length += msg_length
+                accumulated_tokens += msg_tokens
             messages = system_messages + list(reversed(truncated_messages))
 
         # 重试机制
@@ -288,7 +302,13 @@ class AttackLeader(AgentBase):
         for attempt in range(max_retries):
             try:
                 self._notify_progress(self._msg("msg_calling_model", model=self.config.model, attempt=attempt + 1, max_retries=max_retries))
-                response_text = self.config.provider.chat(messages)
+                if self._stream_callback:
+                    response_text = ""
+                    for chunk in self.config.provider.chat_stream(messages):
+                        self._stream_callback(chunk)
+                        response_text += chunk
+                else:
+                    response_text = self.config.provider.chat(messages)
                 self._notify_progress(self._msg("msg_model_complete"))
                 return response_text
             except Exception as e:

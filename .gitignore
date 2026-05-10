@@ -7,6 +7,7 @@ __pycache__/
 .vscode/
 # 忽略日志文件
 *.log
+logs/command_log_progress.txt
 # 忽略打包后的dist文件夹
 dist/
 *.env

@@ -25,7 +25,7 @@ class Hawkeye(AgentBase):
             try:
                 print(f"[鹰眼] 调用API，消息数: {len(messages)}")
                 response = self.config.provider.chat(messages)
-                print(f"[鹰眼] API返回: {response}")
+                print(f"[鹰眼] API返回: {response[:100]}")
                 return response
             except Exception as e:
                 print(f"[鹰眼] API调用失败 (尝试 {attempt + 1}/{max_retries}): {e}")

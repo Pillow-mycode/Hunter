@@ -8,6 +8,7 @@ from agent.team.agent_base import AgentBase
 from agent.system.system_command import write_to_logs, sys_shell
 from agent.system.output_handler import process_long_output
 from agent.team.protocol import MSG_TASK_RESULT
+from llm.token_counter import get_token_counter
 
 # 获取项目根目录
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,6 +37,8 @@ class AttackToolMaster(AgentBase):
         self.on_progress = None
         # 用户输入回调（用于向用户询问输入）
         self.on_need_input = None
+        # 流式输出回调
+        self.stream_callback = None
 
         if comm_bus and blackboard:
             super().__init__(comm_bus, blackboard)
@@ -93,23 +96,25 @@ class AttackToolMaster(AgentBase):
 
     def get_response(self, messages):
         """获取LLM响应，带智能截断和重试机制"""
-        max_total_length = 200000
-        current_length = sum(len(str(msg.get("content", ""))) for msg in messages)
+        token_counter = get_token_counter()
+        context_limit = self.config.provider.get_context_limit()
+        max_tokens = int(context_limit * 0.9)
+        current_tokens = token_counter.count_messages(messages)
 
-        if current_length > max_total_length:
-            print(f"警告: 消息总长度({current_length}字符)超出限制，开始智能截断...")
+        if current_tokens > max_tokens:
+            print(f"警告: 消息token数({current_tokens})超出限制，开始智能截断...")
 
             system_messages = [msg for msg in messages if msg["role"] == "system"]
             other_messages = [msg for msg in messages if msg["role"] != "system"]
             truncated_messages = []
-            accumulated_length = sum(len(str(msg.get("content", ""))) for msg in system_messages)
+            accumulated_tokens = token_counter.count_messages(system_messages)
 
             for msg in reversed(other_messages):
-                msg_length = len(str(msg.get("content", "")))
-                if accumulated_length + msg_length > max_total_length:
+                msg_tokens = token_counter.count_messages([msg])
+                if accumulated_tokens + msg_tokens > max_tokens:
                     break
                 truncated_messages.append(msg)
-                accumulated_length += msg_length
+                accumulated_tokens += msg_tokens
 
             messages = system_messages + list(reversed(truncated_messages))
 
@@ -120,11 +125,12 @@ class AttackToolMaster(AgentBase):
                 }
                 messages.append(tip)
 
-            print(f"截断后: {len(messages)}条消息，{accumulated_length}字符")
+            print(f"截断后: {len(messages)}条消息，{accumulated_tokens}tokens")
 
-        final_length = sum(len(str(msg.get("content", ""))) for msg in messages)
-        if final_length > 250000:
-            print(f"错误: 即使截断后仍然过长({final_length}字符)，强制截断...")
+        final_tokens = token_counter.count_messages(messages)
+        hard_limit = int(context_limit * 0.95)
+        if final_tokens > hard_limit:
+            print(f"错误: 即使截断后仍然过长({final_tokens}tokens)，强制截断...")
             messages = [msg for msg in messages if msg["role"] == "system"][-2:] + \
                        [msg for msg in messages if msg["role"] != "system"][-3:]
 
@@ -132,7 +138,14 @@ class AttackToolMaster(AgentBase):
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                return self.config.provider.chat(messages)
+                if self.stream_callback:
+                    response_text = ""
+                    for chunk in self.config.provider.chat_stream(messages):
+                        self.stream_callback(chunk)
+                        response_text += chunk
+                    return response_text
+                else:
+                    return self.config.provider.chat(messages)
             except Exception as e:
                 error_msg = str(e)
                 print(f"武器大师 API 调用失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")

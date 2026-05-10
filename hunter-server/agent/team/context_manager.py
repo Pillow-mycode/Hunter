@@ -329,9 +329,6 @@ class ContextManager:
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
-        """估算文本的 token 数。
-
-        保守估计：字符数 / 2。适合中英混合文本。
-        中文 ~1-2 tok/char，英文 ~0.25 tok/char，平均 ~0.5 tok/char。
-        """
-        return max(1, len(text) // 2)
+        """使用 tiktoken 精确计算文本 token 数。"""
+        from llm.token_counter import get_token_counter
+        return get_token_counter().count_text(text)

@@ -194,12 +194,10 @@ async def test_connection(body: TestConfigModel):
             base_url=body.base_url,
             model=body.model,
         )
-        ok = provider.health_check()
+        # 直接发测试请求，有异常直接抛出拿到具体错误信息
+        provider.chat([{"role": "user", "content": "Say ok in JSON"}], max_tokens=10)
         latency_ms = int((_time.time() - start) * 1000)
-        if ok:
-            return {"ok": True, "latency_ms": latency_ms}
-        else:
-            return {"ok": False, "error": "Health check returned false"}
+        return {"ok": True, "latency_ms": latency_ms}
     except Exception as e:
         latency_ms = int((_time.time() - start) * 1000)
         return {"ok": False, "error": str(e), "latency_ms": latency_ms}

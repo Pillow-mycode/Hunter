@@ -15,6 +15,18 @@ class OpenAICompatProvider(BaseProvider):
     DEFAULT_TEMPERATURE = 0.0
     DEFAULT_CONTEXT_LIMIT = 131072  # 保守默认 128K
 
+    # 各模型上下文窗口 token 数（用于精确截断）
+    MODEL_CONTEXT_LIMITS = {
+        "deepseek-v4": 131072,
+        "deepseek-v4-flash": 131072,
+        "gpt-4o": 128000,
+        "gpt-4o-mini": 128000,
+        "claude-sonnet-4-6": 200000,
+        "claude-sonnet-4-5": 200000,
+        "qwen3-max": 32768,
+        "glm-4-flash": 131072,
+    }
+
     def __init__(self, api_key, base_url=None, model=None, **kwargs):
         base_url = base_url or self.DEFAULT_BASE_URL
         model = model or (self.RECOMMENDED_MODELS[0] if self.RECOMMENDED_MODELS else "")
@@ -62,4 +74,6 @@ class OpenAICompatProvider(BaseProvider):
         return self.SUPPORTS_JSON_MODE
 
     def get_context_limit(self):
+        if self.model and self.model in self.MODEL_CONTEXT_LIMITS:
+            return self.MODEL_CONTEXT_LIMITS[self.model]
         return self.DEFAULT_CONTEXT_LIMIT
