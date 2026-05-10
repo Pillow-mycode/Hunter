@@ -108,26 +108,20 @@ def process_long_output(output: str, command: str, task_id: str = "default",
     if len(cleaned_output) <= threshold:
         return cleaned_output, None
 
-    # 使用数据分析员处理超长输出
-    try:
-        from agent.smart_brain.data_analyst import analyze_long_output
-        return analyze_long_output(output, command, task_id)
-    except Exception as e:
-        print(f"[输出处理] 数据分析员调用失败: {e}，使用备用方案")
-        # 备用方案：保存文件 + 简单截取
-        file_path = save_output_to_file(output, command, task_id)
+    # 保存完整输出 + 返回头尾摘要，由 ToolMaster 自主决定是否请求 DataAnalyst
+    file_path = save_output_to_file(output, command, task_id)
 
-        head_len = 5000
-        tail_len = 10000
-        head = cleaned_output[:head_len]
-        tail = cleaned_output[-tail_len:]
+    head_len = 5000
+    tail_len = 10000
+    head = cleaned_output[:head_len]
+    tail = cleaned_output[-tail_len:]
 
-        result = (
-            f"[输出过长({len(cleaned_output)}字符)]\n"
-            f"完整结果已保存到: {file_path}\n"
-            f"\n【输出开头】\n{head}\n"
-            f"\n...(省略中间部分)...\n"
-            f"\n【输出结尾】\n{tail}"
-        )
+    result = (
+        f"[系统] 输出过长({len(cleaned_output)}字符)。完整结果已保存至: {file_path}\n"
+        f"前{head_len}字符: {head}\n"
+        f"...(省略中间部分)...\n"
+        f"末尾{tail_len}字符: {tail}\n"
+        f"\n建议: 如需详细分析，可以请求数据分析员(data_analyst)帮助。"
+    )
 
-        return result, file_path
+    return result, file_path
