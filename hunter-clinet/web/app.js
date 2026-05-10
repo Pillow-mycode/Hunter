@@ -1403,8 +1403,13 @@ function confirmAction(confirmed, btn, sessionId) {
 function handleCompleted(result) {
     if (!result) return;
 
-    const status = result.status;
-    const report = result.report;
+    // 兼容 AgentLoop 新格式 {type: "complete", ...} 和旧格式 {status: "completed", report: ...}
+    let status = result.status;
+    let report = result.report;
+
+    if (!status && result.type === "complete") {
+        status = "completed";
+    }
 
     if (status === 'completed' && report) {
         const hasFindings = report.findings && Object.values(report.findings).some(v =>
