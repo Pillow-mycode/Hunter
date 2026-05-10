@@ -77,7 +77,30 @@ const i18n = {
         taskAborted: '任务被中止',
         taskStatus: '任务状态',
         unknownReason: '未知原因',
-        delete: '删除'
+        delete: '删除',
+        settings: '设置',
+        settingsGear: '打开设置',
+        presetLabel: '厂商',
+        presetCustom: '自定义',
+        apiUrl: 'API 地址',
+        modelName: '模型名称',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: '已设置 (不修改请留空)',
+        apiKeyPlaceholderEmpty: '请输入 API Key',
+        testConnection: '测试连接',
+        testConnecting: '测试中...',
+        saveConfig: '保存配置',
+        savingConfig: '保存中...',
+        saveSuccess: '保存成功',
+        saveFailed: '保存失败',
+        testSuccess: '连接成功',
+        testFailed: '连接失败',
+        latency: '延迟',
+        settingsLeader: '渗透专家',
+        settingsAttacker: '武器大师',
+        settingsHawkeye: '鹰眼',
+        settingsAnalyst: '数据分析员',
+        settingsDefault: '默认配置'
     },
     en: {
         title: 'Hunter - Automated Penetration Testing',
@@ -143,7 +166,30 @@ const i18n = {
         taskAborted: 'Task aborted',
         taskStatus: 'Task status',
         unknownReason: 'Unknown reason',
-        delete: 'Delete'
+        delete: 'Delete',
+        settings: 'Settings',
+        settingsGear: 'Open Settings',
+        presetLabel: 'Provider',
+        presetCustom: 'Custom',
+        apiUrl: 'API URL',
+        modelName: 'Model Name',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'Set (leave blank to keep unchanged)',
+        apiKeyPlaceholderEmpty: 'Enter API Key',
+        testConnection: 'Test Connection',
+        testConnecting: 'Testing...',
+        saveConfig: 'Save Config',
+        savingConfig: 'Saving...',
+        saveSuccess: 'Saved successfully',
+        saveFailed: 'Save failed',
+        testSuccess: 'Connection successful',
+        testFailed: 'Connection failed',
+        latency: 'Latency',
+        settingsLeader: 'Pentest Expert',
+        settingsAttacker: 'Weapon Master',
+        settingsHawkeye: 'Hawkeye',
+        settingsAnalyst: 'Data Analyst',
+        settingsDefault: 'Default Config'
     }
 };
 
@@ -161,7 +207,11 @@ const state = {
     sessions: [],            // 会话列表（从服务端获取）
     pendingInteractions: {}, // 存储每个会话的待处理交互 { session_id: { type, data, timestamp } }
     sessionProgress: {},     // 存储每个会话的进度消息（运行时缓存）{ session_id: [messages] }
-    language: localStorage.getItem('hunter_language') || 'zh'  // 从 localStorage 读取语言设置
+    language: localStorage.getItem('hunter_language') || 'zh',  // 从 localStorage 读取语言设置
+    configData: null,         // 配置缓存
+    presets: [],              // 预设厂商列表
+    activeSettingsTab: 'leader',  // 当前设置标签页
+    settingsFormData: {}      // 表单数据缓存
 };
 
 // DOM 元素
@@ -174,7 +224,14 @@ const elements = {
     stopBtn: () => document.getElementById('stopBtn'),
     taskList: () => document.getElementById('taskList'),
     currentTaskId: () => document.getElementById('currentTaskId'),
-    chatTitle: () => document.getElementById('chatTitle')
+    chatTitle: () => document.getElementById('chatTitle'),
+    settingsModal: () => document.getElementById('settingsModal'),
+    settingsModalTitle: () => document.getElementById('settingsModalTitle'),
+    settingsTabs: () => document.getElementById('settingsTabs'),
+    settingsTabContent: () => document.getElementById('settingsTabContent'),
+    testResult: () => document.getElementById('testResult'),
+    btnTest: () => document.getElementById('btnTest'),
+    btnSave: () => document.getElementById('btnSave')
 };
 
 // 初始化
@@ -186,6 +243,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const langBtn = document.getElementById('langBtn');
     if (langBtn) {
         langBtn.addEventListener('click', toggleLanguage);
+    }
+
+    // 绑定设置面板标签页点击事件
+    const settingsTabs = document.getElementById('settingsTabs');
+    if (settingsTabs) {
+        settingsTabs.addEventListener('click', function(e) {
+            const tab = e.target.closest('.settings-tab');
+            if (tab) {
+                switchSettingsTab(tab.dataset.tab);
+            }
+        });
     }
 
     connectServer();
@@ -242,6 +310,25 @@ function updateUILanguage() {
             suggestions[3].onclick = () => sendSuggestion(t('sqlInjectionCmd'));
         }
     }
+
+    // 更新设置按钮
+    const settingsBtn = document.getElementById('settingsBtn');
+    if (settingsBtn) settingsBtn.title = t('settingsGear');
+
+    // 更新设置面板标签
+    const tabs = document.querySelectorAll('.settings-tab');
+    const tabKeys = ['leader', 'attacker', 'hawkeye', 'analyst', 'default'];
+    const tabI18nKeys = ['settingsLeader', 'settingsAttacker', 'settingsHawkeye', 'settingsAnalyst', 'settingsDefault'];
+    tabs.forEach((tab, i) => {
+        if (tabKeys[i]) tab.textContent = t(tabI18nKeys[i]);
+    });
+
+    // 更新设置面板标题
+    const modalTitle = document.getElementById('settingsModalTitle');
+    if (modalTitle) modalTitle.textContent = t('settings');
+
+    // 如果设置面板打开，重新渲染表单以更新标签
+    if (state.activeSettingsTab) renderSettingsForm(state.activeSettingsTab);
 }
 
 // 切换语言
@@ -252,6 +339,292 @@ function toggleLanguage() {
     // 重新渲染会话列表以更新时间格式
     renderSessionList();
 }
+
+// ============== 设置面板 ==============
+
+function openSettings() {
+    const modal = elements.settingsModal();
+    modal.style.display = 'flex';
+
+    Promise.all([loadConfig(), loadPresets()]).then(() => {
+        initSettingsFormData();
+        state.activeSettingsTab = 'leader';
+        updateSettingsTabs();
+        renderSettingsForm('leader');
+        updateUILanguage();
+    }).catch(e => {
+        console.error('加载设置失败:', e);
+    });
+
+    modal.onclick = function(e) {
+        if (e.target === modal) closeSettings();
+    };
+}
+
+function closeSettings() {
+    elements.settingsModal().style.display = 'none';
+    const resultEl = elements.testResult();
+    if (resultEl) {
+        resultEl.textContent = '';
+        resultEl.className = 'test-result';
+    }
+}
+
+async function loadConfig() {
+    const response = await fetch(`//${state.serverUrl}/api/config`);
+    if (!response.ok) throw new Error('Failed to load config');
+    state.configData = await response.json();
+    return state.configData;
+}
+
+async function loadPresets() {
+    const response = await fetch(`//${state.serverUrl}/api/config/presets`);
+    if (!response.ok) throw new Error('Failed to load presets');
+    state.presets = await response.json();
+    return state.presets;
+}
+
+function initSettingsFormData() {
+    const agents = ['leader', 'attacker', 'hawkeye', 'analyst', 'default'];
+    agents.forEach(agent => {
+        const cfg = (state.configData && state.configData[agent]) || {};
+        state.settingsFormData[agent] = {
+            provider_type: cfg.provider_type || '',
+            base_url: cfg.base_url || '',
+            model: cfg.model || '',
+            api_key: '',
+            has_existing_key: !!cfg.api_key
+        };
+    });
+}
+
+function updateSettingsTabs() {
+    const tabs = document.querySelectorAll('.settings-tab');
+    tabs.forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === state.activeSettingsTab);
+    });
+}
+
+function switchSettingsTab(tabName) {
+    saveFormToState(state.activeSettingsTab);
+    state.activeSettingsTab = tabName;
+    updateSettingsTabs();
+    renderSettingsForm(tabName);
+}
+
+function saveFormToState(tabName) {
+    const form = state.settingsFormData[tabName];
+    if (!form) return;
+
+    const preset = document.getElementById('settings-preset');
+    const baseUrl = document.getElementById('settings-base-url');
+    const model = document.getElementById('settings-model');
+    const apiKey = document.getElementById('settings-api-key');
+
+    if (preset) form.provider_type = preset.value;
+    if (baseUrl) form.base_url = baseUrl.value;
+    if (model) form.model = model.value;
+    if (apiKey) form.api_key = apiKey.value;
+}
+
+function renderSettingsForm(tabName) {
+    const container = elements.settingsTabContent();
+    const form = state.settingsFormData[tabName];
+    if (!form) return;
+
+    const presetOptions = state.presets.map(p =>
+        '<option value="' + escapeHtml(p.provider_type) + '">' + escapeHtml(p.provider_type) + '</option>'
+    ).join('');
+
+    const currentPreset = state.presets.some(p => p.provider_type === form.provider_type)
+        ? form.provider_type
+        : 'custom';
+    const isCustom = currentPreset === 'custom';
+
+    container.innerHTML =
+        '<datalist id="model-suggestions">' +
+            (isCustom ? '' : getModelSuggestions(form.provider_type)) +
+        '</datalist>' +
+
+        '<div class="settings-field">' +
+            '<label for="settings-preset">' + t('presetLabel') + '</label>' +
+            '<select id="settings-preset" onchange="onPresetChange(\'' + tabName + '\')">' +
+                presetOptions +
+                '<option value="custom"' + (isCustom ? ' selected' : '') + '>' + t('presetCustom') + '</option>' +
+            '</select>' +
+        '</div>' +
+
+        '<div class="settings-field">' +
+            '<label for="settings-base-url">' + t('apiUrl') + '</label>' +
+            '<input type="text" id="settings-base-url" value="' + escapeHtml(form.base_url) + '" placeholder="https://api.example.com/v1">' +
+        '</div>' +
+
+        '<div class="settings-field">' +
+            '<label for="settings-model">' + t('modelName') + '</label>' +
+            '<input type="text" id="settings-model" list="' + (isCustom ? '' : 'model-suggestions') + '" value="' + escapeHtml(form.model) + '" placeholder="model-name">' +
+        '</div>' +
+
+        '<div class="settings-field">' +
+            '<label for="settings-api-key">' + t('apiKey') + '</label>' +
+            '<input type="password" id="settings-api-key" value="' + escapeHtml(form.api_key) + '" placeholder="' + (form.has_existing_key ? t('apiKeyPlaceholder') : t('apiKeyPlaceholderEmpty')) + '">' +
+        '</div>';
+
+    // 设置预设下拉值
+    const presetSelect = document.getElementById('settings-preset');
+    if (presetSelect && isCustom) {
+        presetSelect.value = 'custom';
+    }
+}
+
+function getModelSuggestions(providerType) {
+    const preset = state.presets.find(p => p.provider_type === providerType);
+    if (!preset || !preset.recommended_models || preset.recommended_models.length === 0) return '';
+    return preset.recommended_models.map(m => '<option value="' + escapeHtml(m) + '">').join('');
+}
+
+function onPresetChange(tabName) {
+    const presetSelect = document.getElementById('settings-preset');
+    const selectedValue = presetSelect.value;
+
+    if (selectedValue === 'custom') {
+        const form = state.settingsFormData[tabName];
+        form.provider_type = 'custom';
+        saveFormToState(tabName);
+        state.settingsFormData[tabName].provider_type = 'custom';
+        renderSettingsForm(tabName);
+        return;
+    }
+
+    const preset = state.presets.find(p => p.provider_type === selectedValue);
+    if (!preset) return;
+
+    const form = state.settingsFormData[tabName];
+    form.provider_type = preset.provider_type;
+    form.base_url = preset.default_base_url || '';
+    form.model = (preset.recommended_models && preset.recommended_models.length > 0)
+        ? preset.recommended_models[0] : '';
+
+    renderSettingsForm(tabName);
+}
+
+async function testConnection() {
+    const tabName = state.activeSettingsTab;
+    saveFormToState(tabName);
+    const form = state.settingsFormData[tabName];
+
+    const resultEl = elements.testResult();
+    const btnTest = elements.btnTest();
+
+    if (!form.base_url || !form.model || !form.api_key) {
+        resultEl.textContent = t('testFailed') + ': 请填写 API 地址、模型和 API Key';
+        resultEl.className = 'test-result error';
+        return;
+    }
+
+    resultEl.textContent = t('testConnecting');
+    resultEl.className = 'test-result testing';
+    btnTest.disabled = true;
+
+    try {
+        const response = await fetch('//' + state.serverUrl + '/api/config/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                provider_type: form.provider_type || 'openai_compat',
+                base_url: form.base_url,
+                model: form.model,
+                api_key: form.api_key
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.ok) {
+            resultEl.textContent = '✓ ' + t('testSuccess') + ' (' + t('latency') + ': ' + data.latency_ms + 'ms)';
+            resultEl.className = 'test-result success';
+        } else {
+            resultEl.textContent = '✗ ' + t('testFailed') + ': ' + (data.error || 'Unknown error');
+            resultEl.className = 'test-result error';
+        }
+    } catch (err) {
+        resultEl.textContent = '✗ ' + t('testFailed') + ': ' + err.message;
+        resultEl.className = 'test-result error';
+    } finally {
+        btnTest.disabled = false;
+    }
+}
+
+async function saveConfig() {
+    const tabName = state.activeSettingsTab;
+    saveFormToState(tabName);
+
+    const resultEl = elements.testResult();
+    const btnSave = elements.btnSave();
+
+    resultEl.textContent = t('savingConfig');
+    resultEl.className = 'test-result testing';
+    btnSave.disabled = true;
+
+    const body = {};
+    const agents = ['default', 'leader', 'attacker', 'hawkeye', 'analyst'];
+    agents.forEach(agent => {
+        const form = state.settingsFormData[agent];
+        if (!form) return;
+        const entry = {};
+        if (form.provider_type) entry.provider_type = form.provider_type;
+        if (form.base_url) entry.base_url = form.base_url;
+        if (form.model) entry.model = form.model;
+        if (form.api_key) entry.api_key = form.api_key;
+        if (Object.keys(entry).length > 0) {
+            body[agent] = entry;
+        }
+    });
+
+    try {
+        const response = await fetch('//' + state.serverUrl + '/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.detail || 'HTTP ' + response.status);
+        }
+
+        const data = await response.json();
+        if (data.ok) {
+            resultEl.textContent = '✓ ' + t('saveSuccess');
+            resultEl.className = 'test-result success';
+
+            agents.forEach(agent => {
+                if (state.settingsFormData[agent] && state.settingsFormData[agent].api_key) {
+                    state.settingsFormData[agent].has_existing_key = true;
+                    state.settingsFormData[agent].api_key = '';
+                }
+            });
+
+            setTimeout(() => renderSettingsForm(state.activeSettingsTab), 0);
+        } else {
+            throw new Error('Save returned not ok');
+        }
+    } catch (err) {
+        resultEl.textContent = '✗ ' + t('saveFailed') + ': ' + err.message;
+        resultEl.className = 'test-result error';
+    } finally {
+        btnSave.disabled = false;
+    }
+}
+
+// ESC 关闭设置面板
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const modal = elements.settingsModal();
+        if (modal && modal.style.display === 'flex') {
+            closeSettings();
+        }
+    }
+});
 
 // 自动调整输入框高度
 function autoResizeTextarea() {

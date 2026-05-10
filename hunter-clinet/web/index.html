@@ -24,6 +24,7 @@
                 <!-- 会话历史列表 -->
             </div>
             <div class="sidebar-footer">
+                <button class="settings-btn" id="settingsBtn" onclick="openSettings()" title="设置">⚙</button>
                 <div class="server-status" id="serverStatus">
                     <span class="status-dot offline"></span>
                     <span class="status-text">未连接</span>
@@ -80,6 +81,34 @@
                 <p class="input-hint">按 Enter 发送，Shift + Enter 换行</p>
             </div>
         </main>
+    </div>
+
+    <!-- 设置面板模态框 -->
+    <div class="modal-overlay" id="settingsModal" style="display: none;">
+        <div class="modal-container" id="settingsModalContainer">
+            <div class="modal-header">
+                <h2 id="settingsModalTitle">设置</h2>
+                <button class="modal-close" onclick="closeSettings()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-tabs" id="settingsTabs">
+                    <button class="settings-tab active" data-tab="leader">渗透专家</button>
+                    <button class="settings-tab" data-tab="attacker">武器大师</button>
+                    <button class="settings-tab" data-tab="hawkeye">鹰眼</button>
+                    <button class="settings-tab" data-tab="analyst">数据分析员</button>
+                    <button class="settings-tab" data-tab="default">默认配置</button>
+                </div>
+                <div class="settings-tab-content" id="settingsTabContent">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="test-result" id="testResult"></span>
+                <div class="modal-footer-buttons">
+                    <button class="btn-test" id="btnTest" onclick="testConnection()">测试连接</button>
+                    <button class="btn-save" id="btnSave" onclick="saveConfig()">保存</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="app.js"></script>
