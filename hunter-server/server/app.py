@@ -212,6 +212,14 @@ class SessionManager:
 
             leader.on_need_input = on_need_input
             leader.on_need_confirm = on_need_confirm
+            for aid, agent in agents.items():
+                if hasattr(agent, 'on_need_input'):
+                    agent.on_need_input = on_need_input
+            if pool and hasattr(pool, 'set_new_instance_callback'):
+                pool.set_new_instance_callback(
+                    lambda iid, agent: setattr(agent, 'on_need_input', on_need_input)
+                    if hasattr(agent, 'on_need_input') else None
+                )
 
             def make_stream_callback(agent_name: str):
                 def on_stream_chunk(chunk: str):
@@ -256,13 +264,13 @@ class SessionManager:
         pool = AgentPool(comm_bus, blackboard)
         pool.register_factory("tool_master",
             lambda iid: AttackToolMaster(AttackToolMasterConfig(),
-                                         comm_bus=comm_bus, blackboard=blackboard))
+                                         comm_bus=comm_bus, blackboard=blackboard, agent_id=iid))
         pool.register_factory("data_analyst",
             lambda iid: DataAnalyst(DataAnalystConfig(),
-                                    comm_bus=comm_bus, blackboard=blackboard))
+                                    comm_bus=comm_bus, blackboard=blackboard, agent_id=iid))
         pool.register_factory("hawkeye",
             lambda iid: Hawkeye(HawkeyeConfig(),
-                                comm_bus=comm_bus, blackboard=blackboard))
+                                comm_bus=comm_bus, blackboard=blackboard, agent_id=iid))
         leader.agent_pool = pool
 
         # 5. 预创建各类型一个实例
@@ -287,6 +295,13 @@ class SessionManager:
         leader.on_progress = None
         leader.on_need_input = on_need_input
         leader.on_need_confirm = on_need_confirm
+        for iid, agent in pool.list_instances().items():
+            if hasattr(agent, 'on_need_input'):
+                agent.on_need_input = on_need_input
+        pool.set_new_instance_callback(
+            lambda iid, agent: setattr(agent, 'on_need_input', on_need_input)
+            if hasattr(agent, 'on_need_input') else None
+        )
 
         def make_stream_callback(agent_name: str):
             def on_stream_chunk(chunk: str):
@@ -302,10 +317,9 @@ class SessionManager:
 
         # 8. 为所有实例创建 AgentLoop
         loops = {"leader": AgentLoop(leader, comm_bus, blackboard)}
-        for iid in comm_bus.list_agents():
+        for iid, agent in pool.list_instances().items():
             if iid == "leader":
                 continue
-            agent = pool._instances.get(iid)
             if agent:
                 loop = AgentLoop(agent, comm_bus, blackboard)
                 loops[iid] = loop
@@ -320,7 +334,7 @@ class SessionManager:
             self.agent_pools = {}
         self.agent_pools[session_id] = pool
 
-        print(f"[Team] 会话 {session_id} 团队已创建：Leader + AgentPool({list(pool._instances.keys())})")
+        print(f"[Team] 会话 {session_id} 团队已创建：Leader + AgentPool({list(pool.list_instances().keys())})")
         return leader, loops
 
     def cleanup_team(self, session_id: str):

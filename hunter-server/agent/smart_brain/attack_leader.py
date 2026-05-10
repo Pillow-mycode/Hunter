@@ -3,8 +3,6 @@ import json
 import threading
 from typing import Callable, Optional
 
-from typing import Optional
-
 from agent.pojo.leader_config import (
     AttackLeaderConfig,
     SYSTEM_CLASSIFY_PROMPT,
@@ -1003,8 +1001,11 @@ class AttackLeader(AgentBase):
 
         # P1 守卫：无新消息 + 有未完成任务 → wait
         has_new_info = len(new_msgs) > 0
-        outstanding = context.get("outstanding_tasks", "")
-        has_pending_tasks = outstanding and outstanding != "(无)"
+        outstanding_dict = context.get("outstanding_dict", {})
+        has_pending_tasks = any(
+            t.status not in ("COMPLETED", "TIMEOUT")
+            for t in outstanding_dict.values()
+        ) if outstanding_dict else False
         if not has_new_info and has_pending_tasks:
             return {"type": "wait"}
 
@@ -1050,7 +1051,7 @@ class AttackLeader(AgentBase):
             return {"type": "complete", "summary": reason or "你好！有什么可以帮您的吗？"}
 
         # simple_query: 生成一个 1 步计划
-        plan = self._generate_plan(user_request)
+        plan = self._generate_plan(user_request, max_steps=1)
         if plan and plan.steps:
             self.active_plan = plan
             self.state = "executing"
@@ -1066,44 +1067,77 @@ class AttackLeader(AgentBase):
             self.state = "idle"
             return {"type": "wait"}
 
-        # 处理结果 → 通过 outstanding_dict 匹配 step_id
+        # 处理结果 → 通过 reply_to 精确匹配 OutstandingTask → step_id
         outstanding_dict = context.get("outstanding_dict", {})
         for msg in new_msgs:
             if msg.msg_type == MSG_TASK_RESULT:
                 result = msg.context_json or {}
-                # 通过 msg_id → OutstandingTask → step_id 匹配
-                step_id = None
-                for tid, task in outstanding_dict.items():
-                    task_step_id = getattr(task, "step_id", "") if hasattr(task, "step_id") else task.get("step_id", "")
-                    if task_step_id:
-                        step_id = task_step_id
-                        break
+                reply_id = msg.reply_to or ""
+                task = outstanding_dict.get(reply_id)
+                step_id = task.step_id if task else ""
                 step = plan.find_step(step_id) if step_id else None
                 if step is None:
-                    # fallback: 找第一个 DISPATCHED 的 step
                     for s in plan.steps:
                         if s.status == "DISPATCHED":
                             step = s
                             break
                 if step:
-                    step.status = "DONE" if result.get("status") == "success" else "FAILED"
+                    # 处理 need_input：向用户询问，拿到输入后继续
+                    if result.get("status") == "need_input":
+                        prompt = result.get("required_input") or result.get("summary", "请提供信息")
+                        user_input = self.wait_for_input(prompt)
+                        if user_input:
+                            step.instruction = f"{step.instruction}\n[用户提供的输入: {user_input}]"
+                            step.status = "PENDING"  # 重置状态以便重新派发
+                            if task:
+                                task.status = "COMPLETED"
+                            if self.agent_pool and step.dispatched_to:
+                                self.agent_pool.release(step.dispatched_to)
+                                step.dispatched_to = None
+                            continue  # 下一轮会重新派发
+                        else:
+                            # 用户跳过 → 标记失败
+                            step.status = "FAILED"
+                            step.result_summary = "用户跳过输入"
+                    else:
+                        step.status = "DONE" if result.get("status") == "success" else "FAILED"
                     step.result_summary = (result.get("summary", "")
                                            or result.get("raw_output", "")
                                            or "")[:200]
                     if self.agent_pool and step.dispatched_to:
                         self.agent_pool.release(step.dispatched_to)
+                        step.dispatched_to = None
+                # 同步 OutstandingTask 状态
+                if task:
+                    task.status = "COMPLETED"
 
-        # 有未完成任务 → 等待
-        outstanding = context.get("outstanding_tasks", "")
-        if outstanding and outstanding != "(无)":
+        # 超时检测：将 TIMEOUT 的 task 对应步骤标记为 FAILED
+        for task_id, task in outstanding_dict.items():
+            task_step_id = getattr(task, "step_id", "") if hasattr(task, "step_id") else task.get("step_id", "")
+            if task.status == "TIMEOUT" and task_step_id:
+                step = plan.find_step(task_step_id)
+                if step and step.status == "DISPATCHED":
+                    step.status = "FAILED"
+                    step.result_summary = f"执行超时 ({int(task.timeout)}s)"
+                    if self.agent_pool and step.dispatched_to:
+                        self.agent_pool.release(step.dispatched_to)
+                        step.dispatched_to = None
+                    task.status = "COMPLETED"  # 防止 AgentLoop 继续等待
+
+        # 有未完成任务 → 等待所有 agent 完成，不追加派发
+        has_pending = any(
+            t.status not in ("COMPLETED", "TIMEOUT")
+            for t in outstanding_dict.values()
+        ) if outstanding_dict else False
+        if has_pending:
             return {"type": "wait"}
 
-        # 计划耗尽 → 回顾
+        # 没有未完成任务 + 计划耗尽 → 回顾
         if plan.is_exhausted():
             self.state = "reviewing"
             return self._handle_reviewing(context)
 
-        # 下一步
+        # 没有未完成任务 + 有计划就绪 → 派发下一批
         return self._dispatch_ready_steps()
 
     def _handle_reviewing(self, context: dict) -> dict:
@@ -1115,18 +1149,22 @@ class AttackLeader(AgentBase):
             self.state = "complete"
             return {"type": "complete", "summary": review.get("summary", "任务完成")}
 
-        # 需要更多 → 重新规划
+        # 需要更多 → 重新规划，但不立即派发
         new_plan = self._generate_plan(user_request, previous_plan=plan, additional_context=review.get("reason", ""))
         if new_plan and new_plan.steps:
             self.active_plan = new_plan
             self.state = "executing"
-            return self._dispatch_ready_steps()
+            return {"type": "wait"}
 
         self.state = "complete"
         return {"type": "complete", "summary": review.get("summary", "任务完成")}
 
     def _dispatch_ready_steps(self) -> dict:
-        """派发就绪步骤（使用 AgentPool 获取空闲实例）"""
+        """派发所有就绪步骤（使用 AgentPool 获取空闲实例）。
+
+        返回单个 delegation、或多个 delegation 的列表（批量派发时）。
+        无 agent 可用时返回 wait。
+        """
         plan = self.active_plan
         if plan is None:
             self.state = "idle"
@@ -1137,22 +1175,28 @@ class AttackLeader(AgentBase):
             self.state = "reviewing"
             return {"type": "wait"}
 
-        step = ready[0]
-
-        target = step.target_agent
-        if self.agent_pool:
-            iid, _ = self.agent_pool.acquire(step.target_agent)
-            if iid:
+        delegations = []
+        for step in ready:
+            target = step.target_agent
+            if self.agent_pool:
+                iid, _ = self.agent_pool.acquire(step.target_agent)
+                if iid is None:
+                    continue  # 没有空闲实例，跳过这个步骤
                 target = iid
                 step.dispatched_to = iid
 
-        step.status = "DISPATCHED"
-        return {
-            "type": "delegate",
-            "target": target,
-            "content": step.instruction,
-            "step_id": step.id,
-        }
+            step.status = "DISPATCHED"
+            delegations.append({
+                "type": "delegate",
+                "target": target,
+                "content": step.instruction,
+                "step_id": step.id,
+            })
+
+        if not delegations:
+            return {"type": "wait"}
+
+        return delegations if len(delegations) > 1 else delegations[0]
 
     # ── LLM 调用 ────────────────────────────────────────────
 
@@ -1177,8 +1221,13 @@ class AttackLeader(AgentBase):
             return {"type": "simple_query", "reason": "分类失败，默认简单查询"}
 
     def _generate_plan(self, user_request: str, previous_plan: Plan = None,
-                       additional_context: str = "") -> Optional[Plan]:
+                       additional_context: str = "", max_steps: int = 8) -> Optional[Plan]:
         parts = [f'## 用户请求\n"{user_request}"']
+
+        # 包含对话历史，让 LLM 知道之前已获得的信息
+        conversation_context = self._format_conversation_history()
+        if conversation_context and conversation_context != self._msg("msg_first_conversation"):
+            parts.append(f"\n## 之前的对话\n{conversation_context}")
 
         if previous_plan:
             parts.append(f"\n## 之前的计划\n目标: {previous_plan.goal}")
@@ -1195,31 +1244,50 @@ class AttackLeader(AgentBase):
         parts.append(f"\n## 可用工具\n{tools}")
 
         parts.append(
-            '\n---\n请生成一个执行计划，包含 1-8 个步骤。每步给出完整的自然语言指令。'
+            f'\n---\n请生成一个执行计划，包含 1-{max_steps} 个步骤。每步给出完整的自然语言指令。'
+            '如果之前的对话中已经知道了目标信息（如IP地址），直接在指令中使用具体值，不要再重新获取。'
             '步骤之间尽量独立。返回 JSON：\n'
             '{"goal": "计划目标", "steps": ['
             '{"id":"s1","instruction":"...","target_agent":"tool_master","depends_on":[]},'
             '...]}'
         )
 
-        self.messages = [
-            {"role": "system", "content": SYSTEM_PLAN_PROMPT},
-            {"role": "user", "content": "\n".join(parts)},
-        ]
-        try:
-            data = json.loads(self.get_response())
-            steps = [PlanStep(**s) for s in data.get("steps", [])]
-            return Plan(
-                goal=data.get("goal", ""),
-                complexity="simple" if len(steps) <= 1 else "complex",
-                steps=steps,
-            )
-        except Exception:
-            return None
+        max_retries = 2
+        for attempt in range(max_retries):
+            self.messages = [
+                {"role": "system", "content": SYSTEM_PLAN_PROMPT},
+                {"role": "user", "content": "\n".join(parts)},
+            ]
+            try:
+                data = json.loads(self.get_response())
+                steps = [PlanStep(**s) for s in data.get("steps", [])]
+                plan = Plan(
+                    goal=data.get("goal", ""),
+                    complexity="simple" if len(steps) <= 1 else "complex",
+                    steps=steps,
+                )
+                if plan.validate_dag():
+                    return plan
+                # DAG 校验失败：追加错误信息后重试
+                parts.append(
+                    "\n⚠️ 上次生成的计划存在循环依赖或引用了不存在的步骤ID，"
+                    "请检查 depends_on 字段后重新生成。"
+                )
+            except Exception:
+                if attempt == max_retries - 1:
+                    return None
+        return None
 
     def _review_results(self, user_request: str, plan: Plan) -> dict:
-        lines = [f"- {'✓' if s.status == 'DONE' else '✗'} {s.instruction}: {s.result_summary[:100]}"
-                 for s in plan.steps]
+        status_icon = {
+            "DONE": "✓", "FAILED": "✗", "DISPATCHED": "⏳",
+            "PENDING": "○", "SKIPPED": "⊘",
+        }
+        lines = []
+        for s in plan.steps:
+            icon = status_icon.get(s.status, "?")
+            result = s.result_summary[:100] if s.result_summary else "(无结果)"
+            lines.append(f"- {icon} [{s.status}] {s.instruction[:80]}: {result}")
 
         prompt = (
             f'审视以下计划的执行结果，判断用户需求是否满足。\n\n'

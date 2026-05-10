@@ -1,5 +1,6 @@
 """AgentPool — 管理同类型 Agent 的多实例生命周期"""
 
+import time
 import threading
 from collections import defaultdict
 
@@ -18,13 +19,19 @@ class AgentPool:
         self._instances: dict[str, object] = {}       # iid → agent
         self._loops: dict[str, object] = {}            # iid → AgentLoop
         self._idle: dict[str, list[str]] = defaultdict(list)  # type → [iids]
+        self._idle_since: dict[str, float] = {}         # iid → idle start timestamp
         self._busy: set[str] = set()
         self._counter: dict[str, int] = defaultdict(int)
         self._lock = threading.Lock()
         self._agent_factories: dict[str, callable] = {}
+        self._on_new_instance: callable = None
 
     def register_factory(self, agent_type: str, factory: callable):
         self._agent_factories[agent_type] = factory
+
+    def set_new_instance_callback(self, callback: callable):
+        """新实例创建时自动调用 callback(instance_id, agent)"""
+        self._on_new_instance = callback
 
     def acquire(self, agent_type: str) -> tuple:
         """获取空闲实例。返回 (instance_id, agent) 或 (None, None)"""
@@ -32,6 +39,7 @@ class AgentPool:
             # 先检查空闲池
             if self._idle.get(agent_type):
                 iid = self._idle[agent_type].pop()
+                self._idle_since.pop(iid, None)
                 self._busy.add(iid)
                 return iid, self._instances[iid]
 
@@ -50,6 +58,8 @@ class AgentPool:
                 self._instances[iid] = agent
                 self._busy.add(iid)
                 self.comm_bus.register_agent(iid)
+                if self._on_new_instance:
+                    self._on_new_instance(iid, agent)
                 return iid, agent
 
         return None, None
@@ -59,12 +69,42 @@ class AgentPool:
             self._busy.discard(instance_id)
             agent_type = instance_id.rsplit("_", 1)[0]
             self._idle[agent_type].append(instance_id)
+            self._idle_since[instance_id] = time.time()
+
+    def reap_idle(self) -> list[str]:
+        """回收超时空闲实例，返回被清理的 iid 列表。"""
+        now = time.time()
+        removed = []
+        with self._lock:
+            for agent_type in list(self._idle.keys()):
+                surviving = []
+                for iid in self._idle[agent_type]:
+                    idle_start = self._idle_since.get(iid, now)
+                    if now - idle_start >= self.idle_timeout:
+                        removed.append(iid)
+                        self._instances.pop(iid, None)
+                        loop = self._loops.pop(iid, None)
+                        if loop:
+                            loop.stop()
+                        self.comm_bus.unregister_agent(iid)
+                        self._idle_since.pop(iid, None)
+                    else:
+                        surviving.append(iid)
+                if surviving:
+                    self._idle[agent_type] = surviving
+                else:
+                    del self._idle[agent_type]
+        return removed
 
     def register_loop(self, instance_id: str, loop):
         self._loops[instance_id] = loop
 
     def get_loop(self, instance_id: str):
         return self._loops.get(instance_id)
+
+    def list_instances(self) -> dict[str, object]:
+        """返回所有实例的只读视图。"""
+        return dict(self._instances)
 
     def start_all(self):
         for loop in self._loops.values():
