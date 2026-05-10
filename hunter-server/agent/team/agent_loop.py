@@ -73,8 +73,12 @@ class AgentLoop(threading.Thread):
 
     def _phase_think(self):
         prev = getattr(self, "_current_decision", {})
-        # 上次决策是 wait 且有未完成任务 → 阻塞等新消息到达
-        if prev.get("type") == "wait" and self.outstanding_tasks:
+        # 上次决策是 wait 且有有效的未完成任务 → 阻塞等新消息到达
+        has_pending = any(
+            t.status not in ("COMPLETED", "TIMEOUT")
+            for t in self.outstanding_tasks.values()
+        ) if self.outstanding_tasks else False
+        if prev.get("type") == "wait" and has_pending:
             self._wait_for_inbox_message(timeout=30.0)
 
         context = {
@@ -95,38 +99,41 @@ class AgentLoop(threading.Thread):
         if not decision:
             return
 
-        dtype = decision.get("type", "")
+        decisions = decision if isinstance(decision, list) else [decision]
 
-        if dtype == "delegate":
-            msg = self.agent.send_msg(
-                to=decision["target"],
-                msg_type="delegation",
-                content=decision["content"],
-                task_id=decision.get("task_id"),
-            )
-            self.outstanding_tasks[msg.msg_id] = OutstandingTask(
-                task_id=msg.msg_id,
-                target_agent=decision["target"],
-                instruction=decision["content"],
-                step_id=decision.get("step_id", ""),
-            )
-            self.blackboard.add_activity(
-                f"{self.agent.AGENT_ID} → {decision['target']}: {decision['content'][:80]}"
-            )
+        for d in decisions:
+            dtype = d.get("type", "")
 
-        elif dtype == "execute_local":
-            action = decision.get("action", "")
-            command = decision.get("command", "")
-            if action == "shell" and hasattr(self.agent, "execute_local"):
-                self.agent.execute_local(command)
+            if dtype == "delegate":
+                msg = self.agent.send_msg(
+                    to=d["target"],
+                    msg_type="delegation",
+                    content=d["content"],
+                    task_id=d.get("task_id"),
+                )
+                self.outstanding_tasks[msg.msg_id] = OutstandingTask(
+                    task_id=msg.msg_id,
+                    target_agent=d["target"],
+                    instruction=d["content"],
+                    step_id=d.get("step_id", ""),
+                )
+                self.blackboard.add_activity(
+                    f"{self.agent.AGENT_ID} → {d['target']}: {d['content'][:80]}"
+                )
 
-        elif dtype == "wait":
-            pass
+            elif dtype == "execute_local":
+                action = d.get("action", "")
+                command = d.get("command", "")
+                if action == "shell" and hasattr(self.agent, "execute_local"):
+                    self.agent.execute_local(command)
 
-        elif dtype == "complete":
-            self._result = decision
-            self.mission_complete.set()
-            self.agent.update_my_status("idle")
+            elif dtype == "wait":
+                pass
+
+            elif dtype == "complete":
+                self._result = d
+                self.mission_complete.set()
+                self.agent.update_my_status("idle")
 
     # ── 辅助 ──────────────────────────────────────────────────
 

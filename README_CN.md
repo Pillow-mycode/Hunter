@@ -30,24 +30,19 @@ cd Hunter/hunter-server
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-
 cp .env.example .env
 
-# 请按需配置 .env
-# 可以配置语言，默认是英文，可以改为中文。
-# 通过将LANGUAGE=en 改为LANGUAGE=zh 切换为中文
-nano .env
-
+# 启动服务后，在 web 客户端设置面板中配置 API Key 即可
 python server/app.py
 ```
 
 ## 平台支持
 
-| 组件 | 支持情况 | 语言 |
-|------|---------|---------|
-| 服务端 | Kali Linux ✅ / Linux ⚠️ / Windows ⚠️ | 中文/英文 |
-| 客户端 | Windows ✅ Mac ✅ Linux ✅ | 中文/英文 |
-| 工具自动化 | Kali 最佳体验 ⭐⭐⭐⭐⭐ |  |
+| 组件 | 支持情况 |
+|------|---------|
+| 服务端 | Kali Linux ✅ / Linux ⚠️ / Windows ⚠️ |
+| 客户端 | Windows ✅ Mac ✅ Linux ✅ |
+| 工具自动化 | Kali 最佳体验 ⭐⭐⭐⭐⭐ |
 
 
 ## 配置服务端（Kali Linux上）
@@ -77,92 +72,35 @@ pip install -r requirements.txt
 
 ### 2. 配置环境变量
 
-在Hunter/hunter-server目录下创建 `.env` 文件并进入，粘贴并配置以下内容（注意：这里有四部分，可以仅配置第一个默认部分其他为空即可，如需要单独为不不同智能体选择不同模型直接填入信息即可，默认优先级：专门配置 > 默认配置）：
+复制 `.env.example` 到 `.env`，然后启动服务后在 web 客户端设置面板（点击齿轮图标）配置 API Key 和模型即可。也可以直接编辑 `.env` 文件：
 
 ```env
-# ==================== 默认配置 （快速启动只需填写这一部分即可）====================
-# Default Configuration (Only fill this section for quick start)
-# 当各智能体的专用配置为空时，使用这些默认值
-# These default values are used when agent-specific configurations are empty
+# ==================== 默认配置（快速启动只需填写这一部分）====================
 DEFAULT_API_KEY=your-api-key-here
-DEFAULT_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DEFAULT_MODEL=qwen3-max
+DEFAULT_BASE_URL=https://api.deepseek.com
+DEFAULT_MODEL=deepseek-v4-flash
 
-# ==================== 语言配置 ====================
-# 设置系统语言
-# zh = 中文 (Chinese), en = English
-# 此设置会影响大模型的回复语言和系统消息
-LANGUAGE=en
-
-# ==================== 武器大师配置 ====================
-# 负责工具选择和命令执行
+# ==================== 各智能体独立配置（可选，留空则使用默认值）====================
 ATTACKER_API_KEY=
 ATTACKER_BASE_URL=
 ATTACKER_MODEL=
 
-# ==================== 鹰眼配置 ====================
-# 负责检测终端是否需要用户交互
 HAWKEYE_API_KEY=
 HAWKEYE_BASE_URL=
 HAWKEYE_MODEL=
 
-# ==================== 渗透专家配置 ====================
-# 负责任务规划和决策
 LEADER_API_KEY=
 LEADER_BASE_URL=
 LEADER_MODEL=
 
-# ==================== 数据分析员配置 ====================
-# 负责分析超长命令输出，提取关键信息
-# 建议使用便宜的小模型，如 qwen-turbo、glm-4-flash
 ANALYST_API_KEY=
 ANALYST_BASE_URL=
 ANALYST_MODEL=
-
 ```
-
-#### 配置说明
-
-- **API Key**：必填，填写你的 LLM 服务商 API Key（如阿里云 DashScope、OpenAI 等）
-- **Base URL**：必填，API 服务地址
-- **Model**：必填，使用的模型名称
 
 #### 配置优先级
 
-每个智能体的配置都遵循优先级规则：**专用配置 > 默认配置**
-
-示例：
-- 如果 `ATTACKER_API_KEY` 有值 → 使用 `ATTACKER_API_KEY`
-- 如果 `ATTACKER_API_KEY` 为空 → 使用 `DEFAULT_API_KEY`
-- 如果两者都为空 → 报错
-
-#### 推荐配置方案
-
-**方案 1：统一配置（推荐）**
-```env
-DEFAULT_API_KEY=sk-xxx
-DEFAULT_BASE_URL=https://api.example.com/v1
-DEFAULT_MODEL=gpt-4
-
-# 其他配置留空，自动使用默认值
-ATTACKER_API_KEY=
-HAWKEYE_API_KEY=
-LEADER_API_KEY=
-```
-
-**方案 2：差异化配置**
-```env
-DEFAULT_API_KEY=sk-xxx
-
-# 武器大师使用更强的模型
-ATTACKER_MODEL=qwen3-max-latest
-
-# 鹰眼使用更快的模型（降低成本）
-HAWKEYE_MODEL=qwen3-turbo
-
-# 渗透专家使用默认模型
-LEADER_API_KEY=
-```
+**专用配置 > 默认配置**。各智能体留空则自动使用 DEFAULT 默认值。
 
 ### 3. 启动 FastAPI 服务端
 

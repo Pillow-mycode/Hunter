@@ -89,16 +89,11 @@ Analyze penetration testing tool outputs, extract key information, and summarize
 
 
 class DataAnalystConfig:
-    def __init__(self, language: str = None):
-        # 使用 Provider 层创建 LLM 客户端
+    def __init__(self):
         self.provider = ProviderFactory.create_from_env(agent_type="analyst")
         self.model = self.provider.model
 
-        # 语言配置
-        self.language = language or os.getenv("LANGUAGE", "zh").lower()
-
-        # 根据语言选择系统提示词
-        self.system_prompt = DATA_ANALYST_PROMPT_EN if self.language == "en" else DATA_ANALYST_PROMPT_ZH
+        self.system_prompt = DATA_ANALYST_PROMPT_ZH
 
         # 处理参数
         self.trigger_threshold = 30000  # 触发阈值：超过此长度才调用数据分析员

@@ -81,15 +81,10 @@ Output: {"result": "true"}
 
 
 class HawkeyeConfig:
-    def __init__(self, prompt=None, language=None):
-        # 使用 Provider 层创建 LLM 客户端
+    def __init__(self, prompt=None):
         self.provider = ProviderFactory.create_from_env(agent_type="hawkeye")
         self.model = self.provider.model
 
-        # 语言配置：优先使用参数，其次使用环境变量，默认中文
-        self.language = language or os.getenv("LANGUAGE", "zh").lower()
-
         if prompt is None:
-            # 根据语言选择提示词
-            prompt = HAWKEYE_PROMPT_EN if self.language == "en" else HAWKEYE_PROMPT_ZH
+            prompt = HAWKEYE_PROMPT_ZH
         self.prompt = prompt

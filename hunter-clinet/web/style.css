@@ -219,59 +219,6 @@ body {
 .status-dot.offline { background: var(--error); }
 .status-dot.connecting { background: var(--warning); animation: pulse 1s infinite; }
 
-.server-config {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.server-config input {
-    flex: 1;
-    min-width: 100px;
-    padding: 8px 12px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.85rem;
-}
-
-.server-config button {
-    padding: 8px 12px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    cursor: pointer;
-    font-size: 0.85rem;
-    transition: background 0.2s;
-    white-space: nowrap;
-}
-
-.server-config button:hover {
-    background: var(--accent);
-}
-
-/* 语言切换按钮 */
-.lang-btn {
-    min-width: 36px;
-    padding: 8px 10px;
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 6px;
-    color: white;
-    cursor: pointer;
-    font-size: 0.85rem;
-    font-weight: 600;
-    transition: all 0.2s;
-    flex-shrink: 0;
-}
-
-.lang-btn:hover {
-    background: var(--accent-hover);
-    border-color: var(--accent-hover);
-}
-
 /* 主聊天区域 */
 .chat-container {
     flex: 1;
@@ -334,34 +281,8 @@ body {
     margin-bottom: 30px;
 }
 
-.welcome-message .security-notice {
-    color: var(--success);
-    font-size: 0.85rem;
-    margin-bottom: 20px;
-}
 
-.suggestions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    justify-content: center;
-}
 
-.suggestions button {
-    padding: 10px 20px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    color: var(--text-primary);
-    cursor: pointer;
-    font-size: 0.9rem;
-    transition: all 0.2s;
-}
-
-.suggestions button:hover {
-    background: var(--bg-tertiary);
-    border-color: var(--accent);
-}
 
 /* 消息样式 */
 .message {
@@ -708,13 +629,8 @@ body {
         font-size: 1.4rem;
     }
 
-    .suggestions {
-        flex-direction: column;
-    }
 
-    .suggestions button {
-        width: 100%;
-    }
+
 }
 
 @media (max-width: 480px) {
@@ -730,18 +646,6 @@ body {
         margin: 10px;
         padding: 10px 15px;
         font-size: 0.9rem;
-    }
-
-    .server-config {
-        flex-direction: column;
-    }
-
-    .server-config input {
-        width: 100%;
-    }
-
-    .server-config button {
-        width: 100%;
     }
 
     .chat-header {
@@ -887,6 +791,16 @@ body {
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
+.export-menu::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: 0;
+    right: 0;
+    height: 6px;
+    background: transparent;
+}
+
 .export-dropdown:hover .export-menu {
     display: block;
 }
@@ -957,10 +871,6 @@ body {
     display: none;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
 
 .modal-container {
     background: var(--bg-secondary);

@@ -22,7 +22,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 class AttackToolMaster(AgentBase):
     AGENT_ID = "tool_master"
 
-    def __init__(self, config: AttackToolMasterConfig, comm_bus=None, blackboard=None):
+    def __init__(self, config: AttackToolMasterConfig, comm_bus=None, blackboard=None, agent_id: str = ""):
         self.messages = []
         self.tools = config.tools
         self.config = config
@@ -41,7 +41,7 @@ class AttackToolMaster(AgentBase):
         self.stream_callback = None
 
         if comm_bus and blackboard:
-            super().__init__(comm_bus, blackboard)
+            super().__init__(comm_bus, blackboard, agent_id=agent_id)
 
     def _notify_progress(self, message: str):
         """发送进度通知到客户端"""
@@ -167,17 +167,41 @@ class AttackToolMaster(AgentBase):
                 raise e
 
     def decide(self, context: dict) -> dict:
+        # Check for abort signal before processing
+        if self._abort_event and self._abort_event.is_set():
+            return {"type": "wait"}
+
         msgs = self.drain_inbox()
         for msg in msgs:
             if msg.msg_type == "delegation":
+                # Check abort again before starting long operation
+                if self._abort_event and self._abort_event.is_set():
+                    self.send_msg(
+                        to=msg.from_agent,
+                        msg_type=MSG_TASK_RESULT,
+                        content="任务已取消",
+                        reply_to=msg.msg_id,
+                    )
+                    break
+
                 task = {
                     "task_id": msg.task_id or msg.msg_id,
                     "action": "execute_instruction",
                     "target": "",
                     "params": {"instruction": msg.content},
                 }
+                self.update_my_status("busy")
                 try:
                     result = self.run(task)
+                    # After long run, check if we were cancelled
+                    if self._abort_event and self._abort_event.is_set():
+                        self.send_msg(
+                            to=msg.from_agent,
+                            msg_type=MSG_TASK_RESULT,
+                            content="任务执行中已被取消",
+                            reply_to=msg.msg_id,
+                        )
+                        break
                     self.send_msg(
                         to=msg.from_agent,
                         msg_type=MSG_TASK_RESULT,
@@ -255,8 +279,10 @@ class AttackToolMaster(AgentBase):
 
         self.append_message("user", task_description)
 
+        self._shell_count = 0   # 当前任务已执行 shell 命令计数
+        self._last_command = ""  # 当前任务上一条 shell 命令
         my_round = 0
-        max_rounds = 50  # 防止无限循环
+        max_rounds = 10  # 防止无限循环
 
         while my_round < max_rounds:
             my_round += 1
@@ -410,7 +436,25 @@ class AttackToolMaster(AgentBase):
                     if file_path:
                         self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
 
+                    # 将结果追加到对话
                     self.append_message("system", results)
+
+                    # 检测是否重复执行相同命令
+                    self._shell_count += 1
+                    cmd_normalized = response_content.strip()
+                    is_repeat = cmd_normalized == self._last_command
+                    self._last_command = cmd_normalized
+
+                    if is_repeat:
+                        self.append_message("system",
+                            "[系统警告] 你刚执行了和上轮完全相同的命令。命令结果已经在了，"
+                            "请立即使用 task_done 汇报结果，不要再重复执行！"
+                        )
+                    elif self._shell_count >= 1:
+                        self.append_message("system",
+                            "[系统提示] 命令已执行完毕。如果你已经拿到足够的信息来完成任务，"
+                            '请使用 task_done 返回结果。不要为了"验证"或"确认"而重新执行同样的操作。'
+                        )
                     continue
 
                 elif response_type == "need_message":
@@ -697,6 +741,21 @@ class AttackToolMaster(AgentBase):
                     if file_path:
                         self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
                     self.append_message("system", results)
+
+                    self._shell_count += 1
+                    cmd_normalized = response_content.strip()
+                    is_repeat = cmd_normalized == self._last_command
+                    self._last_command = cmd_normalized
+
+                    if is_repeat:
+                        self.append_message("system",
+                            "[系统警告] 重复执行相同命令，请立即使用 task_done 汇报结果。"
+                        )
+                    elif self._shell_count >= 1:
+                        self.append_message("system",
+                            "[系统提示] 命令已执行完毕。如果你已经拿到足够的信息，"
+                            "请使用 task_done 返回结果。"
+                        )
                     continue
 
                 elif response_type == "need_message":

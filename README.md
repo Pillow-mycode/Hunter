@@ -32,11 +32,9 @@ cd Hunter/hunter-server
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-
-# Configure .env
 cp .env.example .env
-nano .env
 
+# Start server, then configure API keys in the web client settings panel
 python server/app.py
 ```
 
@@ -73,89 +71,35 @@ pip install -r requirements.txt
 
 ### 2. Configure Environment Variables
 
-Create a `.env` file in the Hunter/hunter-server directory and configure the following content (Note: There are four sections. You can configure only the first default section and leave others empty. If you need different models for different agents, fill in the information directly. Priority: Specific configuration > Default configuration):
+Copy `.env.example` to `.env`, then configure API keys and models via the web client settings panel (click the gear icon). You can also edit `.env` manually if preferred.
 
 ```env
 # ==================== Default Configuration ====================
-# These default values are used when agent-specific configurations are empty
 DEFAULT_API_KEY=your-api-key-here
-DEFAULT_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DEFAULT_MODEL=qwen3-max
+DEFAULT_BASE_URL=https://api.deepseek.com
+DEFAULT_MODEL=deepseek-v4-flash
 
-# ==================== language configuration ====================
-# Set system language
-# zh = 中文 (Chinese), en = English
-# This setting affects LLM response language and system messages
-LANGUAGE=en
-
-# ==================== Weapon Master Configuration ====================
-# Responsible for tool selection and command execution
+# ==================== Agent-Specific Overrides (optional) ====================
 ATTACKER_API_KEY=
 ATTACKER_BASE_URL=
 ATTACKER_MODEL=
 
-# ==================== Hawkeye Configuration ====================
-# Responsible for detecting if terminal requires user interaction
 HAWKEYE_API_KEY=
 HAWKEYE_BASE_URL=
 HAWKEYE_MODEL=
 
-# ==================== Penetration Expert Configuration ====================
-# Responsible for task planning and decision-making
 LEADER_API_KEY=
 LEADER_BASE_URL=
 LEADER_MODEL=
 
-# ==================== Data Analyst Configuration ====================
-# Responsible for analyzing long command outputs and extracting key information
-# Recommend using cheap small models like qwen-turbo, glm-4-flash
 ANALYST_API_KEY=
 ANALYST_BASE_URL=
 ANALYST_MODEL=
 ```
 
-#### Configuration Notes
-
-- **API Key**: Required. Enter your LLM provider's API Key (e.g., Alibaba Cloud DashScope, OpenAI, etc.)
-- **Base URL**: Required. API service address
-- **Model**: Required. Model name to use
-
 #### Configuration Priority
 
-Each agent's configuration follows the priority rule: **Specific configuration > Default configuration**
-
-Example:
-- If `ATTACKER_API_KEY` has a value → Use `ATTACKER_API_KEY`
-- If `ATTACKER_API_KEY` is empty → Use `DEFAULT_API_KEY`
-- If both are empty → Error
-
-#### Recommended Configuration Options
-
-**Option 1: Unified Configuration (Recommended)**
-```env
-DEFAULT_API_KEY=sk-xxx
-DEFAULT_BASE_URL=https://api.example.com/v1
-DEFAULT_MODEL=gpt-4
-
-# Leave other configurations empty to automatically use default values
-ATTACKER_API_KEY=
-HAWKEYE_API_KEY=
-LEADER_API_KEY=
-```
-
-**Option 2: Differentiated Configuration**
-```env
-DEFAULT_API_KEY=sk-xxx
-
-# Weapon Master uses a more powerful model
-ATTACKER_MODEL=qwen3-max-latest
-
-# Hawkeye uses a faster model (cost reduction)
-HAWKEYE_MODEL=qwen3-turbo
-
-# Penetration Expert uses default model
-LEADER_API_KEY=
-```
+**Specific configuration > Default configuration**. Leave agent-specific fields empty to use defaults.
 
 ### 3. Start FastAPI Server
 

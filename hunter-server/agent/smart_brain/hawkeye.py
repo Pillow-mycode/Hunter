@@ -11,11 +11,11 @@ from agent.team.protocol import MSG_INPUT_ALERT
 class Hawkeye(AgentBase):
     AGENT_ID = "hawkeye"
 
-    def __init__(self, config: HawkeyeConfig, comm_bus=None, blackboard=None):
+    def __init__(self, config: HawkeyeConfig, comm_bus=None, blackboard=None, agent_id: str = ""):
         self.config = config
         self._last_check_output = ""
         if comm_bus and blackboard:
-            super().__init__(comm_bus, blackboard)
+            super().__init__(comm_bus, blackboard, agent_id=agent_id)
 
 
     def get_response(self, messages):
@@ -57,9 +57,15 @@ class Hawkeye(AgentBase):
             return False
 
     def decide(self, context: dict) -> dict:
+        if self._abort_event and self._abort_event.is_set():
+            return {"type": "wait"}
+
         msgs = self.drain_inbox()
         for msg in msgs:
+            if self._abort_event and self._abort_event.is_set():
+                break
             if msg.msg_type == "delegation" and msg.context_json:
+                self.update_my_status("busy")
                 output_snippet = msg.context_json.get("output", "")
                 detected = self.check(output_snippet)
                 if detected:
@@ -69,4 +75,5 @@ class Hawkeye(AgentBase):
                         content=f"[鹰眼] 检测到交互提示，进程可能等待输入",
                         reply_to=msg.msg_id,
                     )
+                self.update_my_status("idle")
         return {"type": "wait"}

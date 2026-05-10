@@ -20,22 +20,13 @@ const i18n = {
         notConnected: '未连接',
         connected: '已连接',
         connecting: '连接中...',
-        connect: '连接',
-        serverAddress: '服务器地址',
+
+
         chatTitle: 'Hunter 渗透测试助手',
         welcomeTitle: '欢迎使用 Hunter',
         welcomeDesc: '我是自动化渗透测试助手，可以帮你执行各种安全测试任务。',
-        securityNotice: '本网页无任何后门或攻击性脚本，请放心使用',
         inputPlaceholder: '输入渗透测试需求，例如：对 example.com 进行端口扫描',
         inputHint: '按 Enter 发送，Shift + Enter 换行',
-        portScan: '端口扫描',
-        subdomainEnum: '子域名枚举',
-        loginBrute: '登录爆破',
-        sqlInjection: 'SQL注入检测',
-        portScanCmd: '对 192.168.1.1 进行端口扫描',
-        subdomainEnumCmd: '对 example.com 进行子域名枚举',
-        loginBruteCmd: '对 example.com/login 进行登录爆破',
-        sqlInjectionCmd: '检测 example.com 是否存在 SQL 注入',
         taskRunning: '当前任务正在执行中，请等待完成后再发送新消息',
         taskStopped: '任务已停止',
         connectionError: '连接错误，请重试',
@@ -117,22 +108,13 @@ const i18n = {
         notConnected: 'Disconnected',
         connected: 'Connected',
         connecting: 'Connecting...',
-        connect: 'Connect',
-        serverAddress: 'Server Address',
+
+
         chatTitle: 'Hunter Pentest Assistant',
         welcomeTitle: 'Welcome to Hunter',
         welcomeDesc: 'I am an automated penetration testing assistant, ready to help you with security testing tasks.',
-        securityNotice: 'This page contains no backdoors or malicious scripts, safe to use',
         inputPlaceholder: 'Enter your pentest request, e.g.: Scan ports on example.com',
         inputHint: 'Press Enter to send, Shift + Enter for new line',
-        portScan: 'Port Scan',
-        subdomainEnum: 'Subdomain Enum',
-        loginBrute: 'Login Brute',
-        sqlInjection: 'SQL Injection',
-        portScanCmd: 'Scan ports on 192.168.1.1',
-        subdomainEnumCmd: 'Enumerate subdomains of example.com',
-        loginBruteCmd: 'Brute force login on example.com/login',
-        sqlInjectionCmd: 'Test SQL injection on example.com',
         taskRunning: 'Task is running, please wait for completion',
         taskStopped: 'Task stopped',
         connectionError: 'Connection error, please retry',
@@ -216,7 +198,7 @@ function t(key) {
 
 // 全局状态
 const state = {
-    serverUrl: window.location.host || 'localhost:8000',
+    get serverUrl() { return window.location.host || 'localhost:8000'; },
     connected: false,
     currentSessionId: null,  // 当前显示的会话 ID
     websockets: {},          // 每个会话的 WebSocket 连接 { session_id: WebSocket }
@@ -233,7 +215,6 @@ const state = {
 
 // DOM 元素
 const elements = {
-    serverUrl: () => document.getElementById('serverUrl'),
     serverStatus: () => document.getElementById('serverStatus'),
     chatMessages: () => document.getElementById('chatMessages'),
     messageInput: () => document.getElementById('messageInput'),
@@ -293,8 +274,8 @@ function updateUILanguage() {
     document.querySelector('.new-chat-btn').innerHTML = `<span>+</span> ${t('newSession')}`;
 
     // 更新服务器配置
-    document.getElementById('serverUrl').placeholder = t('serverAddress');
-    document.querySelector('.server-config button').textContent = t('connect');
+
+
 
     // 更新语言切换按钮
     const langBtn = document.getElementById('langBtn');
@@ -316,22 +297,7 @@ function updateUILanguage() {
     const welcome = document.querySelector('.welcome-message');
     if (welcome) {
         welcome.querySelector('h2').textContent = t('welcomeTitle');
-        welcome.querySelector('p:not(.security-notice)').textContent = t('welcomeDesc');
-        const securityNotice = welcome.querySelector('.security-notice');
-        if (securityNotice) {
-            securityNotice.textContent = t('securityNotice');
-        }
-        const suggestions = welcome.querySelectorAll('.suggestions button');
-        if (suggestions.length >= 4) {
-            suggestions[0].textContent = t('portScan');
-            suggestions[0].onclick = () => sendSuggestion(t('portScanCmd'));
-            suggestions[1].textContent = t('subdomainEnum');
-            suggestions[1].onclick = () => sendSuggestion(t('subdomainEnumCmd'));
-            suggestions[2].textContent = t('loginBrute');
-            suggestions[2].onclick = () => sendSuggestion(t('loginBruteCmd'));
-            suggestions[3].textContent = t('sqlInjection');
-            suggestions[3].onclick = () => sendSuggestion(t('sqlInjectionCmd'));
-        }
+        welcome.querySelector('p').textContent = t('welcomeDesc');
     }
 
     // 更新设置按钮
@@ -525,13 +491,13 @@ function renderSettingsForm(tabName, idPrefix) {
         return '<option value="' + escapeHtml(p.provider_type) + '"' + sel + '>' + escapeHtml(p.provider_type) + '</option>';
     }).join('');
 
-    const modelListId = isCustom ? '' : 'model-suggestions' + idPrefix;
+    const modelFieldHtml =
+        '<div class="settings-field">' +
+            '<label for="settings-model' + idPrefix + '">' + t('modelName') + '</label>' +
+            '<input type="text" id="settings-model' + idPrefix + '" value="' + escapeHtml(form.model) + '" placeholder="model-name">' +
+        '</div>';
 
     container.innerHTML =
-        '<datalist id="model-suggestions' + idPrefix + '">' +
-            (isCustom ? '' : getModelSuggestions(form.provider_type)) +
-        '</datalist>' +
-
         '<div class="settings-field">' +
             '<label for="settings-preset' + idPrefix + '">' + t('presetLabel') + '</label>' +
             '<select id="settings-preset' + idPrefix + '" onchange="onPresetChange(\'' + tabName + '\', \'' + idPrefix + '\')">' +
@@ -545,10 +511,7 @@ function renderSettingsForm(tabName, idPrefix) {
             '<input type="text" id="settings-base-url' + idPrefix + '" value="' + escapeHtml(form.base_url) + '" placeholder="https://api.example.com/v1">' +
         '</div>' +
 
-        '<div class="settings-field">' +
-            '<label for="settings-model' + idPrefix + '">' + t('modelName') + '</label>' +
-            '<input type="text" id="settings-model' + idPrefix + '" list="' + modelListId + '" value="' + escapeHtml(form.model) + '" placeholder="model-name">' +
-        '</div>' +
+        modelFieldHtml +
 
         '<div class="settings-field">' +
             '<label for="settings-api-key' + idPrefix + '">' + t('apiKey') + '</label>' +
@@ -560,12 +523,6 @@ function renderSettingsForm(tabName, idPrefix) {
     if (presetSelect && isCustom) {
         presetSelect.value = 'custom';
     }
-}
-
-function getModelSuggestions(providerType) {
-    const preset = state.presets.find(p => p.provider_type === providerType);
-    if (!preset || !preset.recommended_models || preset.recommended_models.length === 0) return '';
-    return preset.recommended_models.map(m => '<option value="' + escapeHtml(m) + '">').join('');
 }
 
 function onPresetChange(tabName, idPrefix) {
@@ -732,13 +689,7 @@ function autoResizeTextarea() {
 
 // 连接服务器
 async function connectServer() {
-    let serverUrl = elements.serverUrl().value.trim();
-    if (!serverUrl) {
-        serverUrl = window.location.host || 'localhost:8000';
-        elements.serverUrl().value = serverUrl;
-    }
-
-    state.serverUrl = serverUrl;
+    const serverUrl = state.serverUrl;
     updateServerStatus('connecting');
 
     try {
@@ -747,7 +698,6 @@ async function connectServer() {
         if (response.ok) {
             state.connected = true;
             updateServerStatus('online');
-            // 连接成功后，从服务端加载会话列表
             await loadSessionsFromServer();
         } else {
             throw new Error('Server error');
@@ -897,7 +847,8 @@ function connectWebSocket(sessionId) {
 
         console.log(`[WebSocket] 连接会话 ${sessionId}`);
 
-        const wsUrl = `ws://${state.serverUrl}/ws/${sessionId}`;
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProto}//${state.serverUrl}/ws/${sessionId}`;
         const ws = new WebSocket(wsUrl);
         state.websockets[sessionId] = ws;
 
@@ -919,6 +870,7 @@ function connectWebSocket(sessionId) {
             // 只在当前会话时更新 UI
             if (sessionId === state.currentSessionId) {
                 removeTypingIndicator();
+                removeStreamElement();
                 showSendButton();
             }
 
@@ -933,6 +885,7 @@ function connectWebSocket(sessionId) {
             // 只在当前会话时显示错误
             if (sessionId === state.currentSessionId) {
                 removeTypingIndicator();
+                removeStreamElement();
                 addMessage('assistant', t('connectionError'));
                 showSendButton();
             }
@@ -952,8 +905,13 @@ function handleServerMessage(sessionId, data) {
 
     // 非流式消息到达时，结束当前流式渲染
     const streamFinalizers = ['progress', 'need_input', 'need_confirm', 'task_completed', 'error', 'cancelled'];
+    const terminalEvents = ['task_completed', 'error', 'cancelled', 'need_input', 'need_confirm'];
     if (isCurrentSession && streamFinalizers.includes(type)) {
         finalizeStreamElement();
+    }
+    // 终端事件到达时，移除流式元素（流式内容是内部 JSON，不应保留）
+    if (isCurrentSession && terminalEvents.includes(type)) {
+        removeStreamElement();
     }
 
     switch (type) {
@@ -1081,25 +1039,10 @@ function handleServerMessage(sessionId, data) {
     }
 }
 
-// 流式消息处理
+// 流式消息处理（流式内容是内部 LLM 决策 JSON，不渲染到 UI）
 function handleStreamChunk(agentName, chunk) {
-    let streamEl = document.querySelector('.message.assistant.streaming-active');
-    if (!streamEl) {
-        removeTypingIndicator();
-        streamEl = document.createElement('div');
-        streamEl.className = 'message assistant streaming-active';
-        const agentLabel = agentName === 'leader' ? 'Penetration Expert' : 'Weapon Master';
-        streamEl.innerHTML =
-            `<div class="message-avatar"><img src="hunter.png" alt="Hunter"></div>
-            <div class="message-content">
-                <div class="streaming-header">${agentLabel} thinking...</div>
-                <div class="streaming-text"></div>
-            </div>`;
-        elements.chatMessages().appendChild(streamEl);
-    }
-    const textEl = streamEl.querySelector('.streaming-text');
-    textEl.textContent += chunk;
-    scrollToBottom();
+    // 流式内容为 Agent 内部决策协议（JSON），非用户可读内容，
+    // 仅通过 typing indicator + progress 消息展示状态，不渲染原始 token。
 }
 
 function finalizeStreamElement() {
@@ -1108,6 +1051,10 @@ function finalizeStreamElement() {
         streamEl.classList.remove('streaming-active');
         streamEl.classList.add('streaming-done');
     }
+}
+
+function removeStreamElement() {
+    document.querySelectorAll('.message.assistant.streaming-active, .message.assistant.streaming-done').forEach(el => el.remove());
 }
 
 // 处理进度消息
@@ -1526,13 +1473,6 @@ function newChat() {
             <div class="welcome-icon"><img src="hunter.png" alt="Hunter" class="welcome-logo"></div>
             <h2>${t('welcomeTitle')}</h2>
             <p>${t('welcomeDesc')}</p>
-            <p class="security-notice">${t('securityNotice')}</p>
-            <div class="suggestions">
-                <button onclick="sendSuggestion('${t('portScanCmd')}')">${t('portScan')}</button>
-                <button onclick="sendSuggestion('${t('subdomainEnumCmd')}')">${t('subdomainEnum')}</button>
-                <button onclick="sendSuggestion('${t('loginBruteCmd')}')">${t('loginBrute')}</button>
-                <button onclick="sendSuggestion('${t('sqlInjectionCmd')}')">${t('sqlInjection')}</button>
-            </div>
         </div>
     `;
 

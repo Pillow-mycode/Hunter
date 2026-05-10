@@ -227,6 +227,8 @@ Hunter/
 - 从命令输出提取真实数据，不要编造
 - 如果不确定，问渗透专家
 - 完成后详细汇报你的工作
+- **执行简单查询时：一次命令 → 得到结果 → 立即 task_done，绝不要重复执行相同或类似的命令**
+- **命令输出已经满足需求时直接 task_done，不要因为想"验证"或"确认"而再跑一遍**
 
 ## 输出过长处理
 
@@ -590,20 +592,14 @@ Please return results in JSON format.
 
 
 class AttackToolMasterConfig:
-    def __init__(self, tools_path: str = None, prompt=None, language=None):
-        # 使用默认路径
+    def __init__(self, tools_path: str = None, prompt=None):
         if tools_path is None:
             tools_path = DEFAULT_TOOLS_PATH
-        # 使用 Provider 层创建 LLM 客户端
         self.provider = ProviderFactory.create_from_env(agent_type="attacker")
         self.model = self.provider.model
 
-        # 语言配置：优先使用参数，其次使用环境变量，默认中文
-        self.language = language or os.getenv("LANGUAGE", "zh").lower()
-
         if prompt is None:
-            # 根据语言选择系统提示词
-            prompt = WEAPON_MASTER_PROMPT_EN_FULL if self.language == "en" else WEAPON_MASTER_PROMPT_ZH
+            prompt = WEAPON_MASTER_PROMPT_ZH
 
         self.tools_path = tools_path
         self.system_prompt = prompt

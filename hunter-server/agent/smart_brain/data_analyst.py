@@ -18,11 +18,11 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 class DataAnalyst(AgentBase):
     AGENT_ID = "data_analyst"
 
-    def __init__(self, config: DataAnalystConfig = None, comm_bus=None, blackboard=None):
+    def __init__(self, config: DataAnalystConfig = None, comm_bus=None, blackboard=None, agent_id: str = ""):
         self.config = config or DataAnalystConfig()
         self.system_prompt = self.config.system_prompt
         if comm_bus and blackboard:
-            super().__init__(comm_bus, blackboard)
+            super().__init__(comm_bus, blackboard, agent_id=agent_id)
 
     def _call_llm(self, content: str) -> str:
         """调用 LLM 分析内容"""
@@ -145,11 +145,19 @@ class DataAnalyst(AgentBase):
 
 
     def decide(self, context: dict) -> dict:
+        if self._abort_event and self._abort_event.is_set():
+            return {"type": "wait"}
+
         msgs = self.drain_inbox()
         for msg in msgs:
+            if self._abort_event and self._abort_event.is_set():
+                break
             if msg.msg_type == "analysis_request":
+                self.update_my_status("busy")
                 output = msg.context_json.get("output", "") if msg.context_json else msg.content
                 result, file_path = self.analyze(output, task_id=msg.task_id or "default")
+                if self._abort_event and self._abort_event.is_set():
+                    break
                 self.send_msg(
                     to=msg.from_agent,
                     msg_type=MSG_ANALYSIS_RESULT,
@@ -157,6 +165,7 @@ class DataAnalyst(AgentBase):
                     reply_to=msg.msg_id,
                     context_json={"file_path": file_path} if file_path else None,
                 )
+                self.update_my_status("idle")
         return {"type": "wait"}
 
 

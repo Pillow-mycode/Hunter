@@ -28,12 +28,10 @@
                 <div class="server-status" id="serverStatus">
                     <span class="status-dot offline"></span>
                     <span class="status-text">未连接</span>
-                    <button id="langBtn" class="lang-btn" onclick="toggleLanguage()" title="切换语言">EN</button>
+
                 </div>
-                <div class="server-config">
-                    <input type="text" id="serverUrl" placeholder="服务器地址" value="localhost:8000">
-                    <button onclick="connectServer()">连接</button>
-                </div>
+
+
             </div>
         </aside>
 
@@ -56,13 +54,8 @@
                     <div class="welcome-icon"><img src="hunter.png" alt="Hunter" class="welcome-logo"></div>
                     <h2>欢迎使用 Hunter</h2>
                     <p>我是自动化渗透测试助手，可以帮你执行各种安全测试任务。</p>
-                    <p class="security-notice">本网页无任何后门或攻击性脚本，请放心使用</p>
-                    <div class="suggestions">
-                        <button onclick="sendSuggestion('对 192.168.1.1 进行端口扫描')">端口扫描</button>
-                        <button onclick="sendSuggestion('对 example.com 进行子域名枚举')">子域名枚举</button>
-                        <button onclick="sendSuggestion('对 example.com/login 进行登录爆破')">登录爆破</button>
-                        <button onclick="sendSuggestion('检测 example.com 是否存在 SQL 注入')">SQL注入检测</button>
-                    </div>
+
+
                 </div>
             </div>
 

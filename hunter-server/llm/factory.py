@@ -2,8 +2,15 @@ import os
 from typing import Dict, List, Optional
 
 from llm.base import BaseProvider
+from llm.providers.anthropic_provider import AnthropicProvider
 from llm.providers.deepseek_provider import DeepSeekProvider
+from llm.providers.groq_provider import GroqProvider
+from llm.providers.moonshot_provider import MoonshotProvider
 from llm.providers.openai_compat_provider import OpenAICompatProvider
+from llm.providers.openai_provider import OpenAIProvider
+from llm.providers.qwen_provider import QwenProvider
+from llm.providers.xai_provider import XAIProvider
+from llm.providers.zhipu_provider import ZhipuProvider
 
 _env_loaded = False
 
@@ -22,6 +29,13 @@ class ProviderFactory:
 
     _REGISTRY: Dict[str, type] = {
         "deepseek": DeepSeekProvider,
+        "openai": OpenAIProvider,
+        "anthropic": AnthropicProvider,
+        "qwen": QwenProvider,
+        "zhipu": ZhipuProvider,
+        "moonshot": MoonshotProvider,
+        "groq": GroqProvider,
+        "xai": XAIProvider,
         "openai_compat": OpenAICompatProvider,
     }
 
@@ -35,6 +49,13 @@ class ProviderFactory:
 
     _AUTO_DETECT_RULES: Dict[str, str] = {
         "deepseek.com": "deepseek",
+        "openai.com": "openai",
+        "anthropic.com": "anthropic",
+        "aliyuncs.com": "qwen",
+        "bigmodel.cn": "zhipu",
+        "moonshot.cn": "moonshot",
+        "groq.com": "groq",
+        "x.ai": "xai",
     }
 
     @classmethod

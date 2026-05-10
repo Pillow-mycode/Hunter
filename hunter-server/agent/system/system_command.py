@@ -262,9 +262,6 @@ def sys_shell(bash: str):
                     _save_active(process, master_fd, output, bash, timer, "pty")
                     return _clean_terminal_output(output)
 
-                if process.poll() is not None:
-                    break
-
                 try:
                     readable, _, _ = select.select([master_fd], [], [], 0.1)
                     if readable:
@@ -293,6 +290,11 @@ def sys_shell(bash: str):
                             _set_interaction()
                             _save_active(process, master_fd, output, bash, timer, "pty")
                             return _clean_terminal_output(output)
+                        # 读到数据继续循环，不检查 poll()
+
+                    elif process.poll() is not None:
+                        # 无数据可读且进程已退出 → 确定完成
+                        break
 
                 except Exception:
                     break
@@ -386,36 +388,40 @@ def write_input_to_active_process(input_text: str):
                     active_process["output_history"] = output
                     return _clean_terminal_output(output)
 
-                if process.poll() is not None:
-                    break
+                try:
+                    readable, _, _ = select.select([master_fd], [], [], 0.1)
+                    if readable:
+                        try:
+                            data = os.read(master_fd, 1024)
+                        except OSError as e:
+                            if e.errno == errno.EIO:
+                                break
+                            raise
 
-                readable, _, _ = select.select([master_fd], [], [], 0.1)
-                if readable:
-                    try:
-                        data = os.read(master_fd, 1024)
-                    except OSError as e:
-                        if e.errno == errno.EIO:
+                        if not data:
                             break
-                        raise
 
-                    if not data:
+                        decoded = data.decode(errors="ignore")
+                        with output_lock:
+                            output += decoded
+                        # 实时打印到控制台
+                        print(decoded, end='', flush=True)
+                        write_to_logs(decoded)
+                        timer.reset()
+
+                        # Layer 1: 模式匹配
+                        l1_result = monitor.feed_output(decoded)
+                        if l1_result.detected:
+                            print(f"[鹰眼 Layer1] 检测到交互提示: {l1_result.matched_text}")
+                            _set_interaction()
+                            active_process["output_history"] = output
+                            return _clean_terminal_output(output)
+
+                    elif process.poll() is not None:
                         break
 
-                    decoded = data.decode(errors="ignore")
-                    with output_lock:
-                        output += decoded
-                    # 实时打印到控制台
-                    print(decoded, end='', flush=True)
-                    write_to_logs(decoded)
-                    timer.reset()
-
-                    # Layer 1: 模式匹配
-                    l1_result = monitor.feed_output(decoded)
-                    if l1_result.detected:
-                        print(f"[鹰眼 Layer1] 检测到交互提示: {l1_result.matched_text}")
-                        _set_interaction()
-                        active_process["output_history"] = output
-                        return _clean_terminal_output(output)
+                except Exception:
+                    break
 
         elif pty_type == "winpty":
             while process.isalive():
