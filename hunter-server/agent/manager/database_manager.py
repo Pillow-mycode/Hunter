@@ -84,6 +84,35 @@ class DatabaseManager:
                 )
             ''')
 
+            # Agent 间通信消息表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS agent_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    msg_id TEXT UNIQUE NOT NULL,
+                    sender TEXT NOT NULL,
+                    receiver TEXT NOT NULL,
+                    msg_type TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    context_json TEXT,
+                    expect_reply INTEGER DEFAULT 0,
+                    reply_to TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                )
+            ''')
+
+            # Blackboard 快照表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS blackboard_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    snapshot_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                )
+            ''')
+
             # 创建索引以加速查询
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_messages_session_order
@@ -93,6 +122,16 @@ class DatabaseManager:
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_messages_session_id
                 ON messages(session_id)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_agent_messages_session_id
+                ON agent_messages(session_id)
+            ''')
+
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_blackboard_snapshots_session_id
+                ON blackboard_snapshots(session_id)
             ''')
 
     # ==================== 会话管理 ====================
@@ -173,9 +212,9 @@ class DatabaseManager:
             session_id: 会话ID
         """
         with self._get_cursor() as cursor:
-            # 先删除消息（外键约束）
             cursor.execute('DELETE FROM messages WHERE session_id = ?', (session_id,))
-            # 再删除会话
+            cursor.execute('DELETE FROM agent_messages WHERE session_id = ?', (session_id,))
+            cursor.execute('DELETE FROM blackboard_snapshots WHERE session_id = ?', (session_id,))
             cursor.execute('DELETE FROM sessions WHERE id = ?', (session_id,))
 
     # ==================== 消息管理 ====================
@@ -330,6 +369,77 @@ class DatabaseManager:
                 })
 
             return history
+
+    # ==================== Agent 间消息 ====================
+
+    def save_agent_message(self, msg: dict) -> int:
+        with self._get_cursor() as cursor:
+            context_json = None
+            if msg.get('context_json'):
+                context_json = json.dumps(msg['context_json'], ensure_ascii=False)
+
+            cursor.execute('''
+                INSERT INTO agent_messages
+                    (session_id, msg_id, sender, receiver, msg_type, content,
+                     context_json, expect_reply, reply_to)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                msg.get('session_id', ''),
+                msg.get('msg_id', ''),
+                msg.get('sender', ''),
+                msg.get('receiver', ''),
+                msg.get('msg_type', ''),
+                msg.get('content', ''),
+                context_json,
+                1 if msg.get('expect_reply') else 0,
+                msg.get('reply_to'),
+            ))
+            return cursor.lastrowid
+
+    def get_agent_messages(self, session_id: str, limit: int = 100) -> list:
+        with self._get_cursor() as cursor:
+            cursor.execute('''
+                SELECT * FROM agent_messages
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            ''', (session_id, limit))
+
+            messages = []
+            for row in cursor.fetchall():
+                msg = dict(row)
+                if msg['context_json']:
+                    try:
+                        msg['context_json'] = json.loads(msg['context_json'])
+                    except json.JSONDecodeError:
+                        msg['context_json'] = None
+                messages.append(msg)
+
+            return messages
+
+    # ==================== Blackboard 快照 ====================
+
+    def save_blackboard_snapshot(self, session_id: str, snapshot: dict) -> int:
+        with self._get_cursor() as cursor:
+            cursor.execute('''
+                INSERT INTO blackboard_snapshots (session_id, snapshot_json)
+                VALUES (?, ?)
+            ''', (session_id, json.dumps(snapshot, ensure_ascii=False)))
+            return cursor.lastrowid
+
+    def get_latest_snapshot(self, session_id: str) -> dict:
+        with self._get_cursor() as cursor:
+            cursor.execute('''
+                SELECT * FROM blackboard_snapshots
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (session_id,))
+
+            row = cursor.fetchone()
+            if row:
+                return json.loads(row['snapshot_json'])
+            return None
 
     # ==================== 统计信息 ====================
 
