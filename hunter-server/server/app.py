@@ -806,8 +806,6 @@ def _build_report_from_blackboard(blackboard, leader_summary: str = "") -> dict:
 
     if parts:
         report["conclusion"] = "；".join(parts) + "。"
-    else:
-        report["conclusion"] = leader_summary or "任务执行完毕。"
 
     return report
 
