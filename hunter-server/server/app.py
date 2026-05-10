@@ -35,6 +35,7 @@ load_dotenv(override=True)
 from agent.pojo.leader_config import AttackLeaderConfig
 from agent.smart_brain.attack_leader import AttackLeader
 from agent.manager.database_manager import get_database, DatabaseManager
+from server.config_api import router as config_router
 
 
 # ============== 数据模型 ==============
@@ -309,6 +310,9 @@ app = FastAPI(
     version="3.0.0",
     lifespan=lifespan
 )
+
+# 注册配置管理路由
+app.include_router(config_router)
 
 # CORS 配置
 app.add_middleware(
