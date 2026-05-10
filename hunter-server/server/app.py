@@ -737,10 +737,11 @@ async def run_session_task(session_id: str, command: str):
         if is_cancelled():
             return
 
-        # 5. 生成报告
+        # 5. 生成报告（前端需要 {status, report} 格式）
+        report = _build_report_from_blackboard(blackboard)
         if result and result.get("type") == "complete":
             summary = result.get("summary", "")
-            report = _build_report_from_blackboard(blackboard, summary)
+            report["summary"] = summary
             reply_content = build_reply_content(report)
             session_manager.add_message(session_id, "assistant", reply_content,
                                         {"report": report})
@@ -749,7 +750,10 @@ async def run_session_task(session_id: str, command: str):
 
         await session_manager.send_message(session_id, "task_completed", {
             "status": "completed",
-            "result": result
+            "result": {
+                "status": "completed",
+                "report": report
+            }
         })
 
         print(f"[任务完成] 会话 {session_id} 任务完成")
