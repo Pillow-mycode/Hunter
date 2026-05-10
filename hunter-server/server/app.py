@@ -33,8 +33,18 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 from agent.pojo.leader_config import AttackLeaderConfig
+from agent.pojo.attack_config import AttackToolMasterConfig
+from agent.pojo.hawkeye_config import HawkeyeConfig
+from agent.pojo.analyst_config import DataAnalystConfig
 from agent.smart_brain.attack_leader import AttackLeader
+from agent.smart_brain.attack_tool_master import AttackToolMaster
+from agent.smart_brain.hawkeye import Hawkeye
+from agent.smart_brain.data_analyst import DataAnalyst
 from agent.manager.database_manager import get_database, DatabaseManager
+from agent.team.comm_bus import CommunicationBus
+from agent.team.blackboard import Blackboard
+from agent.team.agent_loop import AgentLoop
+from agent.team.protocol import InterAgentMessage
 from server.config_api import router as config_router
 
 
@@ -76,6 +86,10 @@ class SessionManager:
         self.input_queues: Dict[str, asyncio.Queue] = {}  # session_id -> input queue（运行时）
         self.leader_instances: Dict[str, AttackLeader] = {}  # session_id -> AttackLeader 实例（运行时）
         self.task_cancelled: Dict[str, bool] = {}  # session_id -> is current task cancelled（运行时）
+        # AgentLoop 协同基础设施（per session）
+        self.comm_buses: Dict[str, CommunicationBus] = {}
+        self.blackboards: Dict[str, Blackboard] = {}
+        self.agent_loops: Dict[str, Dict[str, AgentLoop]] = {}
 
     def create_session(self, name: Optional[str] = None) -> str:
         """创建新会话"""
@@ -113,11 +127,18 @@ class SessionManager:
 
     def delete_session(self, session_id: str):
         """删除会话"""
+        # 停止所有 AgentLoop 线程
+        loops = self.agent_loops.pop(session_id, {})
+        for loop in loops.values():
+            loop.stop()
+
         # 清理运行时状态
         self.websockets.pop(session_id, None)
         self.input_queues.pop(session_id, None)
         self.leader_instances.pop(session_id, None)
         self.task_cancelled.pop(session_id, None)
+        self.comm_buses.pop(session_id, None)
+        self.blackboards.pop(session_id, None)
 
         # 从数据库删除
         self.db.delete_session(session_id)
@@ -129,6 +150,20 @@ class SessionManager:
         if session and session["status"] == "running":
             self.task_cancelled[session_id] = True
             self.db.update_session_status(session_id, "idle")
+            # 通过 CommBus 广播中止消息给所有 Agent
+            comm_bus = self.comm_buses.get(session_id)
+            if comm_bus:
+                cancel_msg = InterAgentMessage(
+                    from_agent="leader",
+                    to_agent="leader",
+                    msg_type="delegation",
+                    content="[系统] 任务已被用户取消，请立即停止所有操作。",
+                )
+                comm_bus.broadcast(cancel_msg)
+            # 停止所有 AgentLoop
+            loops = self.agent_loops.get(session_id, {})
+            for loop in loops.values():
+                loop.stop()
             # 记录取消消息
             self.db.add_message(session_id, "system", "任务已被用户取消")
             return True
@@ -149,6 +184,79 @@ class SessionManager:
             self.leader_instances[session_id] = leader
 
         return self.leader_instances[session_id]
+
+    def setup_team(self, session_id: str, main_loop, on_need_input, on_need_confirm):
+        """创建完整的 Agent 团队：CommBus + Blackboard + 4 agents + 4 AgentLoops。
+
+        返回 (leader, loops_dict)。
+        """
+        if session_id in self.comm_buses:
+            return self.leader_instances.get(session_id), self.agent_loops.get(session_id, {})
+
+        # 1. 创建 CommBus + Blackboard
+        comm_bus = CommunicationBus(session_id=session_id)
+        blackboard = Blackboard()
+
+        # 2. 设置进度回调：Agent 间消息 → WebSocket
+        def on_agent_message(msg: InterAgentMessage):
+            asyncio.run_coroutine_threadsafe(
+                store_and_send_progress(
+                    session_id, "progress",
+                    f"[{msg.from_agent}→{msg.to_agent}] {msg.msg_type}: {msg.content[:200]}",
+                    f"[{msg.from_agent}→{msg.to_agent}] {msg.content[:200]}"
+                ),
+                main_loop
+            )
+
+        comm_bus.on_send = on_agent_message
+
+        # 3. 创建 4 个 Agent 实例（传入 comm_bus + blackboard 激活 AgentBase）
+        leader_config = AttackLeaderConfig()
+        leader = AttackLeader(leader_config, comm_bus=comm_bus, blackboard=blackboard)
+        # 恢复对话历史
+        history = self.db.get_conversation_history(session_id)
+        if history:
+            leader.context["conversation_history"] = history
+
+        tool_config = AttackToolMasterConfig(language=leader.language)
+        tool_master = AttackToolMaster(tool_config, comm_bus=comm_bus, blackboard=blackboard)
+
+        hawkeye_config = HawkeyeConfig(language=leader.language)
+        hawkeye = Hawkeye(hawkeye_config, comm_bus=comm_bus, blackboard=blackboard)
+
+        analyst_config = DataAnalystConfig(language=leader.language)
+        data_analyst = DataAnalyst(analyst_config, comm_bus=comm_bus, blackboard=blackboard)
+
+        # 4. 保留回调兼容（Leader 的 wait_for_input / wait_for_confirm）
+        leader.on_progress = None  # 进度通过 CommBus 推送
+        leader.on_need_input = on_need_input
+        leader.on_need_confirm = on_need_confirm
+
+        # 5. 为每个 Agent 创建 AgentLoop
+        loops = {
+            "leader": AgentLoop(leader, comm_bus, blackboard),
+            "tool_master": AgentLoop(tool_master, comm_bus, blackboard),
+            "data_analyst": AgentLoop(data_analyst, comm_bus, blackboard),
+            "hawkeye": AgentLoop(hawkeye, comm_bus, blackboard),
+        }
+
+        # 6. 存储到 session 级字典
+        self.comm_buses[session_id] = comm_bus
+        self.blackboards[session_id] = blackboard
+        self.agent_loops[session_id] = loops
+        self.leader_instances[session_id] = leader
+
+        print(f"[Team] 会话 {session_id} 团队已创建：Leader + ToolMaster + Hawkeye + DataAnalyst")
+        return leader, loops
+
+    def cleanup_team(self, session_id: str):
+        """停止所有 AgentLoop 并清理团队资源"""
+        loops = self.agent_loops.pop(session_id, {})
+        for agent_id, loop in loops.items():
+            loop.stop()
+        self.comm_buses.pop(session_id, None)
+        self.blackboards.pop(session_id, None)
+        print(f"[Team] 会话 {session_id} 团队已清理")
 
     # ==================== 消息存储 ====================
 
@@ -475,7 +583,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
 
 async def run_session_task(session_id: str, command: str):
-    """执行会话中的任务"""
+    """执行会话中的任务 — AgentLoop 异步协作模式"""
     session = session_manager.get_session(session_id)
     if not session:
         return
@@ -488,53 +596,16 @@ async def run_session_task(session_id: str, command: str):
     })
 
     main_loop = asyncio.get_running_loop()
+    leader = None
+    loops = {}
 
     try:
         print(f"[执行任务] 会话 {session_id}, 命令: {command}")
 
-        leader = session_manager.get_or_create_leader(session_id)
-
         def is_cancelled():
             return session_manager.task_cancelled.get(session_id, False)
 
-        # 回调函数 - 存储并发送进度消息
-        def on_progress(message: str):
-            if is_cancelled():
-                raise InterruptedError("任务已取消")
-
-            # 判断消息类型并存储
-            if message.startswith('[武器大师] 正在运行:'):
-                cmd = message[len('[武器大师] 正在运行:'):].strip()
-                # 存储命令消息
-                future = asyncio.run_coroutine_threadsafe(
-                    store_and_send_progress(session_id, "command", cmd, message),
-                    main_loop
-                )
-                future.result(timeout=5)
-            elif message.startswith('[回复]'):
-                reply = message[4:].strip()
-                # 存储中间回复
-                future = asyncio.run_coroutine_threadsafe(
-                    store_and_send_progress(session_id, "reply", reply, message),
-                    main_loop
-                )
-                future.result(timeout=5)
-            elif message.startswith('[文件]'):
-                file_info = message[4:].strip()
-                # 存储文件通知
-                future = asyncio.run_coroutine_threadsafe(
-                    store_and_send_progress(session_id, "file", file_info, message),
-                    main_loop
-                )
-                future.result(timeout=5)
-            else:
-                # 普通进度消息
-                future = asyncio.run_coroutine_threadsafe(
-                    store_and_send_progress(session_id, "progress", message, message),
-                    main_loop
-                )
-                future.result(timeout=5)
-
+        # 回调：用户输入
         def on_need_input(prompt: str) -> Optional[str]:
             if is_cancelled():
                 return None
@@ -544,6 +615,7 @@ async def run_session_task(session_id: str, command: str):
             )
             return future.result(timeout=300)
 
+        # 回调：用户确认
         def on_need_confirm(task_info: dict, message: str) -> bool:
             if is_cancelled():
                 return False
@@ -553,27 +625,45 @@ async def run_session_task(session_id: str, command: str):
             )
             return future.result(timeout=300)
 
-        leader.on_progress = on_progress
-        leader.on_need_input = on_need_input
-        leader.on_need_confirm = on_need_confirm
-
-        # 在线程池中执行
-        result = await main_loop.run_in_executor(
-            None,
-            leader.run,
-            command
+        # 1. 创建团队（CommBus + Blackboard + 4 agents + 4 AgentLoops）
+        leader, loops = session_manager.setup_team(
+            session_id, main_loop, on_need_input, on_need_confirm
         )
+        blackboard = session_manager.blackboards[session_id]
+
+        # 2. 写入任务目标到黑板
+        blackboard.write("mission", "objective", command)
+        blackboard.write("mission", "status", "in_progress")
+        blackboard.add_activity(f"收到任务: {command}")
+
+        # 存储用户消息
+        session_manager.add_message(session_id, "user", command)
+
+        # 3. 启动所有 AgentLoop 线程
+        for agent_id, loop in loops.items():
+            loop.start()
+
+        # 4. 在 executor 中等待 Leader 的 AgentLoop 完成
+        leader_loop = loops.get("leader")
+        if not leader_loop:
+            raise RuntimeError("Leader AgentLoop not found")
+
+        def wait_for_completion():
+            leader_loop.mission_complete.wait()
+            return leader_loop.get_result()
+
+        result = await main_loop.run_in_executor(None, wait_for_completion)
 
         if is_cancelled():
             return
 
-        # 存储最终结果
-        if result and result.get("report"):
-            report = result["report"]
-            # 构建完整的回复内容
+        # 5. 生成报告
+        if result and result.get("type") == "complete":
+            summary = result.get("summary", "")
+            report = _build_report_from_blackboard(blackboard, summary)
             reply_content = build_reply_content(report)
-            # 存储到数据库
-            session_manager.add_message(session_id, "assistant", reply_content, {"report": report})
+            session_manager.add_message(session_id, "assistant", reply_content,
+                                        {"report": report})
 
         session_manager.update_session_status(session_id, "idle")
 
@@ -589,12 +679,53 @@ async def run_session_task(session_id: str, command: str):
         session_manager.update_session_status(session_id, "idle")
     except Exception as e:
         session_manager.update_session_status(session_id, "idle")
-        # 存储错误消息
         session_manager.add_message(session_id, "error", str(e))
         await session_manager.send_message(session_id, "error", {
             "message": str(e)
         })
         print(f"[任务错误] 会话 {session_id}: {e}")
+    finally:
+        # 6. 停止所有 AgentLoop 线程
+        for loop in loops.values():
+            loop.stop()
+
+
+def _build_report_from_blackboard(blackboard, leader_summary: str = "") -> dict:
+    """从 Blackboard 状态生成任务报告。"""
+    findings = blackboard.read("findings")
+    mission = blackboard.read("mission")
+
+    report = {
+        "objective": mission.get("objective", ""),
+        "summary": leader_summary or "任务已完成",
+        "findings": findings,
+    }
+
+    # 统计
+    parts = []
+    subdomains = findings.get("subdomains", [])
+    ports = findings.get("ports", {})
+    vulnerabilities = findings.get("vulnerabilities", [])
+    directories = findings.get("directories", [])
+    credentials = findings.get("credentials", [])
+
+    if subdomains:
+        parts.append(f"发现 {len(subdomains)} 个子域名")
+    if ports:
+        parts.append(f"发现 {len(ports)} 个开放端口")
+    if directories:
+        parts.append(f"发现 {len(directories)} 个目录")
+    if vulnerabilities:
+        parts.append(f"发现 {len(vulnerabilities)} 个漏洞")
+    if credentials:
+        parts.append(f"获取 {len(credentials)} 组凭证")
+
+    if parts:
+        report["conclusion"] = "；".join(parts) + "。"
+    else:
+        report["conclusion"] = leader_summary or "任务执行完毕。"
+
+    return report
 
 
 async def store_and_send_progress(session_id: str, msg_type: str, content: str, raw_message: str):

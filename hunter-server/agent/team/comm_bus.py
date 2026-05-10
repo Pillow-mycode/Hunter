@@ -24,6 +24,7 @@ class CommunicationBus:
         self._pending_replies: dict[str, tuple[threading.Event, list]] = {}
         self._lock = threading.Lock()
         self._db = get_database()
+        self.on_send = None  # Optional[Callable[[InterAgentMessage], None]]
 
     # ── 异步发送 ──────────────────────────────────────────────
 
@@ -32,6 +33,8 @@ class CommunicationBus:
             raise ValueError(f"Unknown agent: {msg.to_agent}")
         self.inboxes[msg.to_agent].put(msg)
         self._persist(msg)
+        if self.on_send:
+            self.on_send(msg)
 
     def drain_inbox(self, agent_id: str) -> list[InterAgentMessage]:
         if agent_id not in self.inboxes:
