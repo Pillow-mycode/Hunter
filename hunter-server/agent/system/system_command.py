@@ -12,63 +12,88 @@ load_dotenv(override=True)
 
 from agent.pojo.hawkeye_config import HawkeyeConfig
 from agent.smart_brain.hawkeye import Hawkeye
+from agent.system.pty_monitor import PTYOutputMonitor
 
 my_platform = "linux"
 
 hawkeye = Hawkeye(HawkeyeConfig())
 
 # =========================
-# 时间线程
+# 监控线程（替换旧 TimeCountThread）
 # =========================
-class TimeCountThread(threading.Thread):
-    def __init__(self, duration, controller=None, result_getter=None, max_total_wait=600):
+class MonitorThread(threading.Thread):
+    """PTY 输出监控线程，每秒检查停滞，每 10 秒检查时长异常。"""
+
+    def __init__(self, monitor: PTYOutputMonitor, controller=None, result_getter=None):
         super().__init__()
+        self.monitor = monitor
         self.controller = controller
-        self.base_duration = duration
-        self.current_duration = duration
-        self.max_duration = 60  # 单次最大等待60秒
-        self.max_total_wait = max_total_wait  # 总最大等待时间（默认10分钟）
-        self.total_wait_time = 0  # 累计等待时间（只在鹰眼判断不需要输入后累加）
-        self.count = 0
-        self.flag = False
         self.result_getter = result_getter
-        self.is_timeout = False  # 是否超时
+        self.flag = False
+        self.is_timeout = False
+        self._check_count = 0
+        self._max_idle_checks = 120  # 最多等 120 次 idle 检查（~2 分钟停滞）
 
     def run(self):
         self.flag = True
+        consecutive_idle = 0
         while self.flag:
             time.sleep(1)
-            self.count += 1
+            self._check_count += 1
 
-            if self.count >= self.current_duration:
-                self.count = 0
-                result = self.result_getter() if self.result_getter else ""
-                print(f"[鹰眼] 定时触发检查 (间隔{self.current_duration}秒, 累计等待{self.total_wait_time}秒, 输出长度{len(result)})")
-                needs_input = check_history(result)
-
-                if not needs_input:
-                    # 鹰眼判断不需要输入，累加等待时间
-                    self.total_wait_time += self.current_duration
-
-                    # 检查总等待时间是否超时
-                    if self.total_wait_time >= self.max_total_wait:
-                        print(f"[超时] 鹰眼判断后累计等待时间超过 {self.max_total_wait} 秒，触发回调")
+            # 每 10 秒检查时长异常
+            if self._check_count % 10 == 0:
+                anomaly = self.monitor.check_duration_anomaly()
+                if anomaly:
+                    level = anomaly.get('level', 'warning')
+                    print(f"[鹰眼 Layer4] 命令时长异常 ({level}): "
+                          f"'{anomaly['command']}' 已运行 {anomaly['elapsed_seconds']:.0f}s, "
+                          f"预期 ≤{anomaly['expected_max']}s")
+                    if level == 'critical':
                         self.is_timeout = True
                         self.flag = False
                         break
 
-                    # 指数退避：下次检查间隔翻倍，但不超过 max_duration
-                    self.current_duration = min(self.current_duration * 2, self.max_duration)
+            # Layer 2/3: 停滞检测
+            idle_result = self.monitor.check_idle()
+            if idle_result.detected:
+                if idle_result.method == 'heuristic':
+                    consecutive_idle += 1
+                    if consecutive_idle >= 3:  # 连续 3 秒判定为交互
+                        print(f"[鹰眼 Layer2] 启发式检测到交互提示: {idle_result.matched_text}")
+                        _set_interaction()
+                        self.flag = False
+                        break
+                elif idle_result.method == 'llm_needed':
+                    consecutive_idle += 1
+                    if consecutive_idle >= 5:
+                        result = self.result_getter() if self.result_getter else ""
+                        needs = check_history(result)
+                        if needs:
+                            self.flag = False
+                            break
+                        consecutive_idle = 0
+                else:
+                    consecutive_idle = 0
+            else:
+                consecutive_idle = 0
+
+            if consecutive_idle > self._max_idle_checks:
+                print("[鹰眼] 输出停滞过久，标记超时")
+                self.is_timeout = True
+                self.flag = False
 
     def stop(self):
         self.flag = False
-        self.count = 0
 
     def reset(self):
-        """有新输出时重置计时和退避"""
-        self.count = 0
-        self.current_duration = self.base_duration  # 重置为初始间隔
-        self.total_wait_time = 0  # 重置总等待时间
+        self.monitor.last_output_time = time.time()
+        self._check_count = 0
+
+
+def _set_interaction():
+    global active_process
+    active_process["needs_interaction"] = True
 
 
 # =========================
@@ -209,8 +234,10 @@ def sys_shell(bash: str):
     except Exception as e:
         return str(e)
 
-    timer = TimeCountThread(
-        duration=10,
+    monitor = PTYOutputMonitor()
+    monitor.start_command(bash)
+    timer = MonitorThread(
+        monitor=monitor,
         controller=process,
         result_getter=lambda: _safe_get_output(output),
     )
@@ -259,6 +286,14 @@ def sys_shell(bash: str):
                         write_to_logs(decoded)
                         timer.reset()
 
+                        # Layer 1: 模式匹配（每次新输出触发）
+                        l1_result = monitor.feed_output(decoded)
+                        if l1_result.detected:
+                            print(f"[鹰眼 Layer1] 检测到交互提示: {l1_result.matched_text}")
+                            _set_interaction()
+                            _save_active(process, master_fd, output, bash, timer, "pty")
+                            return _clean_terminal_output(output)
+
                 except Exception:
                     break
 
@@ -285,6 +320,14 @@ def sys_shell(bash: str):
                     write_to_logs(data)
                     timer.reset()
 
+                    # Layer 1: 模式匹配
+                    l1_result = monitor.feed_output(data)
+                    if l1_result.detected:
+                        print(f"[鹰眼 Layer1] 检测到交互提示: {l1_result.matched_text}")
+                        _set_interaction()
+                        _save_active(process, None, output, bash, timer, "winpty")
+                        return _clean_terminal_output(output)
+
         return _clean_terminal_output(output)
 
     finally:
@@ -310,9 +353,12 @@ def write_input_to_active_process(input_text: str):
     master_fd = active_process["master_fd"]
     output = ""
     pty_type = active_process["type"]
+    bash = active_process["bash"]
 
-    timer = TimeCountThread(
-        duration=10,
+    monitor = PTYOutputMonitor()
+    monitor.start_command(bash)
+    timer = MonitorThread(
+        monitor=monitor,
         controller=process,
         result_getter=lambda: _safe_get_output(output),
     )
@@ -363,6 +409,14 @@ def write_input_to_active_process(input_text: str):
                     write_to_logs(decoded)
                     timer.reset()
 
+                    # Layer 1: 模式匹配
+                    l1_result = monitor.feed_output(decoded)
+                    if l1_result.detected:
+                        print(f"[鹰眼 Layer1] 检测到交互提示: {l1_result.matched_text}")
+                        _set_interaction()
+                        active_process["output_history"] = output
+                        return _clean_terminal_output(output)
+
         elif pty_type == "winpty":
             while process.isalive():
                 if active_process["needs_interaction"]:
@@ -377,6 +431,14 @@ def write_input_to_active_process(input_text: str):
                     print(data, end='', flush=True)
                     write_to_logs(data)
                     timer.reset()
+
+                    # Layer 1: 模式匹配
+                    l1_result = monitor.feed_output(data)
+                    if l1_result.detected:
+                        print(f"[鹰眼 Layer1] 检测到交互提示: {l1_result.matched_text}")
+                        _set_interaction()
+                        active_process["output_history"] = output
+                        return _clean_terminal_output(output)
 
         clear_active_process()
         return _clean_terminal_output(output)
