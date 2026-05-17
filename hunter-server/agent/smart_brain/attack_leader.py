@@ -8,6 +8,7 @@ from agent.pojo.attack_config import AttackToolMasterConfig
 from agent.smart_brain.hardcoded_rules import HardcodedRules, RuleResult
 from agent.team.agent_base import AgentBase
 from agent.system.system_command import write_to_logs, sys_shell
+from agent.system.output_handler import format_console_output
 
 from agent.smart_brain.data_analyst import get_data_analyst
 from agent.team.protocol import MSG_TASK_RESULT, MSG_ANALYSIS_RESULT, MSG_INPUT_ALERT
@@ -191,7 +192,12 @@ class AttackLeader(AgentBase):
     def _notify_progress(self, message: str):
         if self.on_progress:
             self.on_progress(message)
-        print(message)
+        if message.startswith("[CMD_OUTPUT]"):
+            cmd = getattr(self, '_last_local_command', 'unknown')
+            content = message[len("[CMD_OUTPUT]"):]
+            print(format_console_output(cmd, content))
+        else:
+            print(message)
 
     def _notify_message(self, message: str):
         if self.on_progress:
@@ -243,6 +249,7 @@ class AttackLeader(AgentBase):
         Leader 只消费提取结果，不被 raw output 淹没上下文。
         """
         task_id = self.context.get("task_id", "leader")
+        self._last_local_command = command
 
         # 白名单检查
         allowed, reject_reason = self._check_command_whitelist(command)
@@ -535,8 +542,8 @@ class AttackLeader(AgentBase):
 ## 并行策略（重要）
 - 武器大师执行长时间任务时，你**不必等待**，可以同时做其他事
 - 你通过 execute_command 自己执行**快速探查**（curl 看首页、grep 搜关键词、wget 下载小文件）。这些命令应在 10 秒内完成
-- 你也可以 execute_task 委托**另一个武器大师实例**并行执行新任务（如 nikto 扫描时同时跑 dirb 目录爆破）
-- **已委托武器大师的任务，你不要自己再用 execute_command 执行！**（例如：已委托 gobuster → 不要自己再跑 gobuster）
+- 你也可以 execute_task 委托**另一个武器大师实例**并行执行新任务（如 nikto 扫描时同时跑 ffuf 目录爆破）
+- **已委托武器大师的任务，你不要自己再用 execute_command 执行！**（例如：已委托 ffuf → 不要自己再跑 ffuf）
 - 渗透测试是多线并行的，不是串行等待。只有**确实无事可做**时才 wait
 
 ---
@@ -556,8 +563,8 @@ class AttackLeader(AgentBase):
 {{
     "type": "execute_task",
     "target": "tool_master",
-    "instruction": "告诉武器大师要做什么。**所有专业工具必须委托**：nmap、gobuster、nikto、dirb、ffuf、wfuzz、sqlmap、hydra、hashcat、john 等",
-    "reason": "对用户说的自然语言，解释为什么并行（如：'nikto 还在跑，让另一个武器大师同时做 gobuster 目录爆破'）"
+    "instruction": "告诉武器大师要做什么。**所有专业工具必须委托**：nmap、ffuf、nikto、sqlmap、hydra、hashcat、john 等",
+    "reason": "对用户说的自然语言，解释为什么并行（如：'nikto 还在跑，让另一个武器大师同时做 ffuf 目录爆破'）"
 }}
 
 {{

@@ -492,6 +492,30 @@ body {
     50% { opacity: 1; }
 }
 
+/* ── 叙述消息（LLM 自然语言旁白） ── */
+
+.message.narration {
+    margin: 8px 0;
+    animation: fadeIn 0.25s ease;
+}
+
+.message.narration .message-avatar {
+    display: none;
+}
+
+.message.narration .message-content {
+    background: transparent;
+    padding: 0;
+}
+
+.narration-text {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    font-style: italic;
+    padding: 4px 0;
+}
+
 /* 需要输入的消息 */
 .message.input-required .message-content {
     background: var(--bg-tertiary);
@@ -541,34 +565,57 @@ body {
 }
 
 /* 确认消息 */
+.message.confirm-required .message-avatar {
+    display: none;
+}
+
 .message.confirm-required .message-content {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--warning);
+    background: transparent;
+    padding: 0;
+}
+
+.confirm-text {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    padding: 4px 0;
+    white-space: pre-wrap;
 }
 
 .confirm-buttons {
     display: flex;
-    gap: 10px;
-    margin-top: 15px;
+    gap: 8px;
+    margin-top: 8px;
 }
 
 .confirm-buttons button {
-    padding: 8px 25px;
+    padding: 6px 18px;
     border: none;
-    border-radius: 6px;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 0.9rem;
-    transition: background 0.2s;
+    font-size: 0.82rem;
+    font-family: inherit;
+    transition: opacity 0.2s;
+}
+
+.confirm-buttons button:hover {
+    opacity: 0.85;
+}
+
+.confirm-buttons button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .confirm-buttons .btn-yes {
-    background: var(--success);
+    background: var(--accent);
     color: var(--bg-primary);
 }
 
 .confirm-buttons .btn-no {
-    background: var(--error);
-    color: white;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
 }
 
 /* 结果面板 */
@@ -708,7 +755,111 @@ body {
     background: var(--bg-tertiary);
 }
 
-/* 响应式 */
+/* ── Agent 面板（多分区布局） ────────────────────── */
+
+.agent-panels-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin: 12px 0;
+}
+
+.agent-panel {
+    border-radius: 12px;
+    overflow: hidden;
+    animation: panelIn 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+@keyframes panelIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.agent-panel.recycling {
+    animation: panelOut 0.4s ease forwards;
+}
+
+@keyframes panelOut {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(0.96); max-height: 0; margin: 0; padding: 0; }
+}
+
+/* 面板头部 */
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    user-select: none;
+    padding: 10px 16px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
+}
+
+.panel-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: 0.3px;
+}
+
+.panel-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-secondary);
+    transition: background 0.3s;
+}
+
+.panel-status.running {
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success);
+    animation: pulse 1.5s infinite;
+}
+
+.panel-status.done {
+    background: var(--text-secondary);
+}
+
+.panel-body {
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+}
+
+/* Leader 面板 — 柔和卡片 */
+.agent-panel.agent-leader {
+    border: 1px solid var(--border);
+    margin: 12px 0;
+}
+
+/* Master 面板 — 强调卡片 */
+.agent-panel.agent-master {
+    border: 1px solid var(--border);
+}
+
+.agent-panel.agent-master .panel-header {
+    background: linear-gradient(135deg, var(--bg-tertiary), #1a2a4a);
+}
+
+/* 面板内消息微调 */
+.agent-panel .message {
+    margin-bottom: 12px;
+}
+
+.agent-panel .message-content {
+    max-width: 100%;
+}
+
+.agent-panel .cmd-block {
+    margin: 6px 0;
+}
+
+.agent-panel .narration {
+    margin: 4px 0;
+}
+
+/* ── 响应式 */
 @media (max-width: 900px) {
     .sidebar {
         width: 240px;
@@ -1114,6 +1265,25 @@ body {
 .settings-field input:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.scan-mode-toggle {
+    display: flex;
+    gap: 16px;
+}
+
+.scan-mode-toggle .radio-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.scan-mode-toggle .radio-label input[type="radio"] {
+    width: auto;
+    accent-color: var(--accent);
 }
 
 /* 模态框底部 */

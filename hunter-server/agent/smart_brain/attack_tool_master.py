@@ -6,7 +6,7 @@ import threading
 from agent.pojo.attack_config import AttackToolMasterConfig
 from agent.team.agent_base import AgentBase
 from agent.system.system_command import write_to_logs, sys_shell
-from agent.system.output_handler import process_long_output
+from agent.system.output_handler import process_toolmaster_output, format_console_output
 from agent.team.protocol import MSG_TASK_RESULT
 from llm.token_counter import get_token_counter
 
@@ -44,10 +44,16 @@ class AttackToolMaster(AgentBase):
             super().__init__(comm_bus, blackboard, agent_id=agent_id, agent_pool=agent_pool)
 
     def _notify_progress(self, message: str):
-        """发送进度通知到客户端"""
+        """发送进度通知到客户端，控制台用紧凑格式"""
         if self.on_progress:
             self.on_progress(message)
-        print(message)
+        # 控制台：CMD_OUTPUT 紧凑显示，其他直接打印
+        if message.startswith("[CMD_OUTPUT]"):
+            cmd = getattr(self, '_last_command', None) or "unknown"
+            content = message[len("[CMD_OUTPUT]"):]
+            print(format_console_output(cmd, content))
+        else:
+            print(message)
 
     def get_capabilities_summary(self) -> str:
         """返回面向 Leader 的能力摘要（类别级别，非具体工具列表）"""
@@ -237,6 +243,83 @@ class AttackToolMaster(AgentBase):
                 self.release_to_pool()
         return {"type": "wait"}
 
+    # ── 输出限制硬规则 ────────────────────────────────────────
+
+    HARD_OUTPUT_RULES = {
+        "ffuf": {
+            "required_one_of": ["-fc"],
+            "msg": "ffuf 必须包含 -fc 过滤无意义状态码，如 -fc 404,400,500",
+        },
+        "nikto": {
+            "required_one_of": ["-T"],
+            "msg": "nikto 必须包含 -T 限制插件范围，如 -T 4（仅注入+XSS 检测）",
+        },
+        "hydra": {
+            "required_one_of": ["-f", "-o", "-R"],
+            "msg": "hydra 必须包含 -f（首成功后退出）或 -o（输出到文件）",
+        },
+        "wpscan": {
+            "required_one_of": ["--no-banner"],
+            "msg": "wpscan 必须包含 --no-banner 减少冗余输出",
+        },
+        "nmap": {
+            "forbidden": [" -p-", " -p -"],
+            "msg": "nmap 禁止全端口扫描（-p- / -p -），耗时长输出大。请使用 --top-ports N 或指定范围如 -p 1-1000,8080",
+        },
+        "sqlmap": {
+            "forbidden": ["--dump-all"],
+            "required_if": {
+                "if": ["--dump"],
+                "then": ["--stop"],
+            },
+            "msg": "sqlmap 禁止 --dump-all，--dump 时必须加 --stop=N 限制行数（如 --stop=10 试取前10行）",
+        },
+    }
+
+    def _check_output_limits(self, command: str) -> str | None:
+        """检查命令是否违反输出限制硬规则。返回错误消息或 None。"""
+        cmd_tokens = command.split()
+        if not cmd_tokens:
+            return None
+
+        # 取第一个非路径前缀的词作为工具名
+        tool = cmd_tokens[0]
+        wrappers = {"sudo", "proxychains", "proxychains4", "python", "python3", "bash", "sh", "timeout"}
+        i = 0
+        while i < len(cmd_tokens) and cmd_tokens[i] in wrappers:
+            i += 1
+        if i < len(cmd_tokens):
+            tool = cmd_tokens[i]
+        if "/" in tool:
+            tool = tool.rsplit("/", 1)[-1]
+
+        rule = self.HARD_OUTPUT_RULES.get(tool)
+        if not rule:
+            return None
+
+        # 检查 forbidden：命令中不能包含这些字符串
+        if rule.get("forbidden"):
+            for f in rule["forbidden"]:
+                if f in command:
+                    return f"[硬规则] {rule['msg']}"
+
+        # 检查 required_one_of：至少包含一个
+        if rule.get("required_one_of"):
+            found = any(f in command for f in rule["required_one_of"])
+            if not found:
+                return f"[硬规则] {rule['msg']}"
+
+        # 检查 required_if：如果包含 if 标志，则必须包含 then 标志
+        if rule.get("required_if"):
+            cond = rule["required_if"]
+            has_if = any(f in command for f in cond["if"])
+            if has_if:
+                has_then = any(f in command for f in cond["then"])
+                if not has_then:
+                    return f"[硬规则] {rule['msg']}"
+
+        return None
+
     def run(self, task: dict) -> dict:
         """
         执行任务（结构化输入输出）
@@ -300,7 +383,8 @@ class AttackToolMaster(AgentBase):
         self._shell_count = 0   # 当前任务已执行 shell 命令计数
         self._last_command = ""  # 当前任务上一条 shell 命令
         my_round = 0
-        max_rounds = 10  # 防止无限循环
+        _mode = getattr(self.config, 'scan_mode', 'fast')
+        max_rounds = 5 if _mode == 'fast' else 15
 
         while my_round < max_rounds:
             my_round += 1
@@ -401,26 +485,26 @@ class AttackToolMaster(AgentBase):
                     # 查找工具的安装命令
                     install_cmd = self._get_install_command(tool_name)
                     if install_cmd:
-                        results = sys_shell(install_cmd)
-                        if not isinstance(results, str):
-                            results = str(results)
+                        try:
+                            self._last_command = install_cmd
+                            results = sys_shell(install_cmd)
+                            if not isinstance(results, str):
+                                results = str(results)
 
-                        write_to_logs(f"system: 安装结果:{results[:500]}...")
+                            write_to_logs(f"system: 安装结果:{results[:500]}...")
 
-                        # 处理过长输出
-                        results, file_path = process_long_output(
-                            results,
-                            install_cmd,
-                            self.current_task_id or task_id,
-                            threshold=30000
-                        )
+                            results, file_path = process_toolmaster_output(
+                                results,
+                                install_cmd,
+                                self.current_task_id or task_id
+                            )
 
-                        self._notify_progress(f"[CMD_OUTPUT]{results[:2000]}")
-                        if file_path:
-                            self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
-                        self._notify_progress("[CMD_END]")
+                            self._notify_progress(f"[CMD_OUTPUT]{results[:2000]}")
+                            if file_path:
+                                self._notify_progress(f"[文件] 完整结果已保存: {file_path}")
+                        finally:
+                            self._notify_progress("[CMD_END]")
 
-                        # 验证安装是否成功
                         verify_result = sys_shell(f"which {tool_name} 2>/dev/null || echo 'NOT_INSTALLED'")
                         if "NOT_INSTALLED" not in str(verify_result) and str(verify_result).strip():
                             self.append_message("system", f"工具 {tool_name} 安装成功\n安装输出:\n{results}")
@@ -431,35 +515,43 @@ class AttackToolMaster(AgentBase):
                         print(error_msg)
                         write_to_logs(error_msg)
                         self.append_message("system", error_msg)
+                        self._notify_progress("[CMD_END]")
                     continue
 
                 elif response_type == "shell":
                     print(f"武器大师: {response_description}")
                     write_to_logs(f"武器大师: 执行命令 - {response_content}")
+
+                    # 输出长度硬限制预检
+                    limit_err = self._check_output_limits(response_content)
+                    if limit_err:
+                        self._notify_progress(f"[CMD_START]{response_content}")
+                        self._notify_progress(f"[CMD_OUTPUT]{limit_err}")
+                        self._notify_progress("[CMD_END]")
+                        self.append_message("system", limit_err)
+                        continue
+
                     # 向客户端发送正在运行的命令
                     self._notify_progress(f"[CMD_START]{response_content}")
-                    results = sys_shell(response_content)
-                    if not isinstance(results, str):
-                        results = str(results)
+                    try:
+                        results = sys_shell(response_content)
+                        if not isinstance(results, str):
+                            results = str(results)
 
-                    write_to_logs(f"system: 命令执行结果:{results[:500]}...")
+                        write_to_logs(f"system: 命令执行结果:{results[:500]}...")
 
-                    # 处理过长输出：保存文件 + 智能截取
-                    results, file_path = process_long_output(
-                        results,
-                        response_content,
-                        self.current_task_id or task_id,
-                        threshold=30000
-                    )
+                        processed, file_path = process_toolmaster_output(
+                            results,
+                            response_content,
+                            self.current_task_id or task_id
+                        )
 
-                    self._notify_progress(f"[CMD_OUTPUT]{results[:3000]}")
-                    # 如果保存了文件，通知客户端
-                    if file_path:
-                        self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
-                    self._notify_progress("[CMD_END]")
-
-                    # 将结果追加到对话
-                    self.append_message("system", results)
+                        self._notify_progress(f"[CMD_OUTPUT]{processed[:3000]}")
+                        if file_path:
+                            self._notify_progress(f"[文件] 完整结果已保存: {file_path}")
+                        self.append_message("system", processed)
+                    finally:
+                        self._notify_progress("[CMD_END]")
 
                     # 检测是否重复执行相同命令
                     self._shell_count += 1
@@ -467,6 +559,8 @@ class AttackToolMaster(AgentBase):
                     is_repeat = cmd_normalized == self._last_command
                     self._last_command = cmd_normalized
 
+                    _mode = getattr(self.config, 'scan_mode', 'fast')
+                    shell_limit = 3 if _mode == 'fast' else 8
                     if is_repeat:
                         self.append_message("system",
                             "[系统警告] 你刚执行了和上轮完全相同的命令。命令结果已经在了，"
@@ -477,10 +571,10 @@ class AttackToolMaster(AgentBase):
                             "[系统提示] 命令已执行完毕。如果你已经拿到足够的信息来完成任务，"
                             '请使用 task_done 返回结果。不要为了"验证"或"确认"而重新执行同样的操作。'
                         )
-                    elif self._shell_count >= 3:
+                    elif self._shell_count >= shell_limit:
                         self.append_message("system",
-                            "[系统强制提示] 你已经执行了多条命令。如果已获得足够信息，"
-                            "必须立即使用 task_done 结束任务，不得继续执行更多命令。"
+                            f"[系统强制提示] 已执行 {self._shell_count} 条命令（{_mode} 模式上限 {shell_limit}）。"
+                            "如果已获得足够信息，必须立即使用 task_done 结束任务。"
                         )
                     continue
 
@@ -530,15 +624,14 @@ class AttackToolMaster(AgentBase):
                     results = write_input_to_active_process(actual_input)
                     if results:
                         write_to_logs(f"system: 继续执行结果:{results[:500]}...")
-                        # 处理过长输出
-                        results, file_path = process_long_output(
+                        results, file_path = process_toolmaster_output(
                             results,
                             f"input: {actual_input}",
-                            self.current_task_id or task_id,
-                            threshold=30000
+                            self.current_task_id or task_id
                         )
+
                         if file_path:
-                            self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
+                            self._notify_progress(f"[文件] 完整结果已保存: {file_path}")
                         self.append_message("system", results)
                     else:
                         write_to_logs(f"system: 没有活跃进程，输入被忽略")
@@ -570,16 +663,14 @@ class AttackToolMaster(AgentBase):
 
                         write_to_logs(f"system: 脚本执行结果:{results[:500]}...")
 
-                        # 处理过长输出
-                        results, file_path = process_long_output(
+                        results, file_path = process_toolmaster_output(
                             results,
                             cmd,
-                            self.current_task_id or task_id,
-                            threshold=30000
+                            self.current_task_id or task_id
                         )
-                        if file_path:
-                            self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
 
+                        if file_path:
+                            self._notify_progress(f"[文件] 完整结果已保存: {file_path}")
                         self.append_message("system", results)
                     finally:
                         # 删除临时脚本
@@ -657,7 +748,8 @@ class AttackToolMaster(AgentBase):
         # 继续执行（复用 run 的循环逻辑）
         task_id = self.current_task.get("task_id", "unknown")
         my_round = 0
-        max_rounds = 50
+        _mode = getattr(self.config, 'scan_mode', 'fast')
+        max_rounds = 10 if _mode == 'fast' else 30
 
         while my_round < max_rounds:
             my_round += 1
@@ -728,21 +820,23 @@ class AttackToolMaster(AgentBase):
 
                     install_cmd = self._get_install_command(tool_name)
                     if install_cmd:
-                        results = sys_shell(install_cmd)
-                        if not isinstance(results, str):
-                            results = str(results)
+                        try:
+                            self._last_command = install_cmd
+                            results = sys_shell(install_cmd)
+                            if not isinstance(results, str):
+                                results = str(results)
 
-                        results, file_path = process_long_output(
-                            results,
-                            install_cmd,
-                            self.current_task_id or task_id,
-                            threshold=30000
-                        )
+                            results, file_path = process_toolmaster_output(
+                                results,
+                                install_cmd,
+                                self.current_task_id or task_id
+                            )
 
-                        self._notify_progress(f"[CMD_OUTPUT]{results[:2000]}")
-                        if file_path:
-                            self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
-                        self._notify_progress("[CMD_END]")
+                            self._notify_progress(f"[CMD_OUTPUT]{results[:2000]}")
+                            if file_path:
+                                self._notify_progress(f"[文件] 完整结果已保存: {file_path}")
+                        finally:
+                            self._notify_progress("[CMD_END]")
 
                         verify_result = sys_shell(f"which {tool_name} 2>/dev/null || echo 'NOT_INSTALLED'")
                         if "NOT_INSTALLED" not in str(verify_result) and str(verify_result).strip():
@@ -751,42 +845,56 @@ class AttackToolMaster(AgentBase):
                             self.append_message("system", f"工具 {tool_name} 安装可能失败，请检查\n安装输出:\n{results}")
                     else:
                         self.append_message("system", f"错误: 未找到工具 {tool_name} 的安装命令，请手动安装")
+                        self._notify_progress("[CMD_END]")
                     continue
 
                 elif response_type == "shell":
                     print(f"武器大师: {response_description}")
+
+                    # 输出长度硬限制预检
+                    limit_err = self._check_output_limits(response_content)
+                    if limit_err:
+                        self._notify_progress(f"[CMD_START]{response_content}")
+                        self._notify_progress(f"[CMD_OUTPUT]{limit_err}")
+                        self._notify_progress("[CMD_END]")
+                        self.append_message("system", limit_err)
+                        continue
+
                     # 向客户端发送正在运行的命令
                     self._notify_progress(f"[CMD_START]{response_content}")
-                    results = sys_shell(response_content)
-                    if not isinstance(results, str):
-                        results = str(results)
-                    # 处理过长输出
-                    results, file_path = process_long_output(
-                        results,
-                        response_content,
-                        self.current_task_id or task_id,
-                        threshold=30000
-                    )
+                    try:
+                        results = sys_shell(response_content)
+                        if not isinstance(results, str):
+                            results = str(results)
 
-                    self._notify_progress(f"[CMD_OUTPUT]{results[:3000]}")
-                    if file_path:
-                        self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
-                    self._notify_progress("[CMD_END]")
-                    self.append_message("system", results)
+                        processed, file_path = process_toolmaster_output(
+                            results,
+                            response_content,
+                            self.current_task_id or task_id
+                        )
+
+                        self._notify_progress(f"[CMD_OUTPUT]{processed[:3000]}")
+                        if file_path:
+                            self._notify_progress(f"[文件] 完整结果已保存: {file_path}")
+                        self.append_message("system", processed)
+                    finally:
+                        self._notify_progress("[CMD_END]")
 
                     self._shell_count += 1
                     cmd_normalized = response_content.strip()
                     is_repeat = cmd_normalized == self._last_command
                     self._last_command = cmd_normalized
 
+                    _mode = getattr(self.config, 'scan_mode', 'fast')
+                    shell_limit = 3 if _mode == 'fast' else 8
                     if is_repeat:
                         self.append_message("system",
                             "[系统警告] 重复执行相同命令，请立即使用 task_done 汇报结果。"
                         )
-                    elif self._shell_count >= 1:
+                    elif self._shell_count >= shell_limit:
                         self.append_message("system",
-                            "[系统提示] 命令已执行完毕。如果你已经拿到足够的信息，"
-                            "请使用 task_done 返回结果。"
+                            f"[系统强制提示] 已执行 {self._shell_count} 条命令（{_mode} 模式上限 {shell_limit}）。"
+                            "请立即使用 task_done 结束任务。"
                         )
                     continue
 
@@ -828,15 +936,14 @@ class AttackToolMaster(AgentBase):
                     from agent.system.system_command import write_input_to_active_process
                     results = write_input_to_active_process(actual_input)
                     if results:
-                        # 处理过长输出
-                        results, file_path = process_long_output(
+                        results, file_path = process_toolmaster_output(
                             results,
                             f"input: {actual_input}",
-                            self.current_task_id or task_id,
-                            threshold=30000
+                            self.current_task_id or task_id
                         )
+
                         if file_path:
-                            self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
+                            self._notify_progress(f"[文件] 完整结果已保存: {file_path}")
                         self.append_message("system", results)
                     else:
                         self.append_message("system", "没有活跃进程，输入被忽略。可能需要重新运行命令。")

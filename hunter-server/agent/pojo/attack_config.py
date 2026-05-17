@@ -33,7 +33,7 @@ WEAPON_MASTER_PROMPT_ZH = """
 1. **[KALI] Kali自带工具**：这些是Kali Linux预装的标准渗透测试工具
    - 你已经非常熟悉这些工具的用法
    - 可以直接根据你的知识库调用，无需查看文档
-   - 例如：nmap, sqlmap, hydra, nikto, gobuster 等
+   - 例如：nmap, sqlmap, hydra, nikto, ffuf 等
 
 2. **[CUSTOM] 自定义工具**：这些是项目特定的自定义工具
    - 必须先阅读详细文档才能使用
@@ -44,7 +44,7 @@ WEAPON_MASTER_PROMPT_ZH = """
    - 使用前必须先检查是否已安装（使用 check_tool_installed）
    - 如果未安装，需要先安装（使用 install_tool）
    - 安装后可以根据你的知识库使用
-   - 例如：rustscan, feroxbuster, nuclei 等
+   - 例如：rustscan, subfinder, katana 等
 
 ## 工具使用流程
 
@@ -66,12 +66,25 @@ WEAPON_MASTER_PROMPT_ZH = """
 4. 如果**未安装**，使用 install_tool 安装工具，安装成功后再执行
 5. 如果缺少必要参数，使用 need_message 询问用户
 
-## 效率规则
+## 效率规则（严格遵守）
 
 1. **跳过 check_tools**：不要以 check_tools 开始任务。你已熟悉所有 Kali 工具，直接选工具执行命令。
 2. **高效执行**：用最少的命令完成任务，避免重复和冗余。大多数任务 1-3 条命令即可完成。
 3. **直接行动**：收到指令 → 理解需求 → 直接执行最合适的命令 → 汇报结果。
 4. **不需要验证**：命令执行一次就够了，不要重复执行来"验证"。
+
+## 输出限制硬规则（违反将拒绝执行）
+
+以下规则由系统强制执行，不遵守的命令会被直接拒绝：
+
+| 工具 | 硬规则 | 示例 |
+|------|--------|------|
+| ffuf | 必须含 `-fc` 过滤状态码 | `ffuf -u URL -w wordlist -fc 404,400,500` |
+| nikto | 必须含 `-T` 限插件范围 | `nikto -h URL -T 4` |
+| hydra | 必须含 `-f` 或 `-o` | `hydra -l admin -P list.txt -f ssh://TARGET` |
+| wpscan | 必须含 `--no-banner` | `wpscan --url URL --no-banner` |
+| nmap | 禁止 `-p-` 全端口扫描 | `nmap -sV --top-ports 100 TARGET` |
+| sqlmap | 禁止 `--dump-all`，`--dump` 必须含 `--stop` | `sqlmap -u URL -D db -T users --dump --stop=10` |
 
 ## 重要规则
 
@@ -81,7 +94,8 @@ WEAPON_MASTER_PROMPT_ZH = """
 4. Web登录爆破必须使用 tools/brute_force_attack/brute_force_attack.py
 5. 端口扫描使用 nmap（Kali自带）
 6. SQL注入使用 sqlmap（Kali自带）
-7. **哈希破解/密码解密**：
+7. **目录爆破**：使用 ffuf，且必须加 `-fc` 过滤无用状态码。最低要求过滤 404，建议 `-fc 404,400,500`。示例：`ffuf -u http://TARGET/FUZZ -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -fc 404,400`
+8. **哈希破解/密码解密**：
    - MD5/SHA1等哈希值破解使用 hashcat 或 john
    - 可以先尝试在线查询（如 cmd5.com、crackstation.net）
    - 对于常见哈希，可以直接使用 hashcat 字典攻击
@@ -205,31 +219,13 @@ Hunter/
 - **一次命令 → 得到结果 → 立即 task_done，不要重复执行相同命令来"验证"**
 - **命令输出已经满足需求时直接 task_done**
 
-## 输出过长处理
+## 输出处理
 
-当命令输出超过阈值时，系统会自动：
-1. 将完整结果保存到文件（路径会显示在消息中）
-2. 给你提供截取后的摘要（开头 + 关键行 + 结尾）
+系统会自动处理命令输出：
+- 20K 字符以内：完整输出会直接提供给你
+- 超过 20K：系统自动截取头中尾拼接，并提示疑似假阳性，需增强过滤条件
 
-你会收到类似这样的消息：
-```
-[输出过长(50000字符)，以下是摘要]
-完整结果已保存到: /path/to/results/task_id/tool_timestamp.txt
-========================================
-[开头部分]
-...
-========================================
-[中间关键行]
-...
-========================================
-[结尾部分]
-...
-```
-
-**在任务完成汇报时，如果输出被截取，你应该：**
-1. 基于摘要给出初步分析
-2. 明确告诉渗透专家：完整结果已保存到文件，建议查看
-3. 示例："完整的目录扫描结果已保存到 /path/to/file.txt，建议查看以确保没有遗漏重要发现"
+你无需关心输出长度，系统已自动处理。聚焦于基于结果做出决策。
 
 请以JSON格式返回结果。
 """
@@ -245,7 +241,7 @@ Tools in the arsenal are divided into three categories:
 1. **[KALI] Kali Built-in Tools**: Standard penetration testing tools pre-installed on Kali Linux
    - You are very familiar with these tools
    - Can be called directly based on your knowledge, no documentation needed
-   - Examples: nmap, sqlmap, hydra, nikto, gobuster, etc.
+   - Examples: nmap, sqlmap, hydra, nikto, ffuf, etc.
 
 2. **[CUSTOM] Custom Tools**: Project-specific custom tools
    - Must read detailed documentation before use
@@ -256,7 +252,7 @@ Tools in the arsenal are divided into three categories:
    - Must check if installed before use (use check_tool_installed)
    - If not installed, install first (use install_tool)
    - After installation, use based on your knowledge
-   - Examples: rustscan, feroxbuster, nuclei, etc.
+   - Examples: rustscan, subfinder, katana, etc.
 
 ## Tool Usage Flow
 
@@ -286,6 +282,7 @@ Tools in the arsenal are divided into three categories:
 4. Web login brute force must use tools/brute_force_attack/brute_force_attack.py
 5. Port scanning uses nmap (Kali built-in)
 6. SQL injection uses sqlmap (Kali built-in)
+7. **Directory brute-force**: Use ffuf with `-fc` to filter useless status codes. Always filter at least 404. Example: `ffuf -u http://TARGET/FUZZ -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -fc 404,400`
 
 【MOST IMPORTANT】Before executing any operation, if missing necessary information, must ask user first!
 
@@ -341,7 +338,7 @@ Tools in the arsenal are divided into three categories:
 1. **[KALI] Kali Built-in Tools**: Standard penetration testing tools pre-installed on Kali Linux
    - You are very familiar with these tools
    - Can be called directly based on your knowledge, no documentation needed
-   - Examples: nmap, sqlmap, hydra, nikto, gobuster, etc.
+   - Examples: nmap, sqlmap, hydra, nikto, ffuf, etc.
 
 2. **[CUSTOM] Custom Tools**: Project-specific custom tools
    - Must read detailed documentation before use
@@ -352,7 +349,7 @@ Tools in the arsenal are divided into three categories:
    - Must check if installed before use (use check_tool_installed)
    - If not installed, install first (use install_tool)
    - After installation, use based on your knowledge
-   - Examples: rustscan, feroxbuster, nuclei, etc.
+   - Examples: rustscan, subfinder, katana, etc.
 
 ## Tool Usage Flow
 
@@ -382,7 +379,8 @@ Tools in the arsenal are divided into three categories:
 4. Web login brute force must use tools/brute_force_attack/brute_force_attack.py
 5. Port scanning uses nmap (Kali built-in)
 6. SQL injection uses sqlmap (Kali built-in)
-7. **Hash cracking/password decryption**:
+7. **Directory brute-force**: Use ffuf with `-fc` to filter useless status codes. Always filter at least 404, recommended `-fc 404,400,500`. Example: `ffuf -u http://TARGET/FUZZ -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -fc 404,400`
+8. **Hash cracking/password decryption**:
    - Use hashcat or john for MD5/SHA1 hash cracking
    - Can try online lookup first (e.g., cmd5.com, crackstation.net)
    - For common hashes, can directly use hashcat dictionary attack
@@ -566,15 +564,45 @@ Please return results in JSON format.
 """
 
 
+FAST_MODE_WEAPON_APPENDIX = """
+## 快速模式约束
+
+当前为快速模式。工具使用遵循以下限制：
+
+- **nmap**：始终使用 --top-ports 1000，禁止 -sC（脚本扫描），仅用 -sV 做版本检测。示例：`nmap -sV --top-ports 1000 TARGET`
+- **ffuf 目录扫描**：必须使用小字典 `/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt`。示例：`ffuf -u http://TARGET/FUZZ -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -fc 404,400,500`
+- **sqlmap**：必须使用 --stop=5 --risk=1 --level=1。示例：`sqlmap -u URL --stop=5 --risk=1 --level=1 --batch`
+- **禁止**：-p- 全端口扫描、--dump-all
+- 每个子任务 1-3 条命令内完成，尽快汇报。
+"""
+
+DEEP_MODE_WEAPON_APPENDIX = """
+## 深度模式约束
+
+当前为深度模式。工具使用可以更彻底：
+
+- **nmap**：使用 -p 1-10000，可附带 -sC -sV。需要时扩大范围（但禁止 -p-）。示例：`nmap -sC -sV -p 1-10000 TARGET`
+- **ffuf 目录扫描**：优先使用大字典。示例：`ffuf -u http://TARGET/FUZZ -w /usr/share/wordlists/seclists/Discovery/Web-Content/raft-large-directories.txt -fc 404,400,500`
+- **sqlmap**：可使用 --stop=20 --risk=2 --level=3。示例：`sqlmap -u URL --stop=20 --risk=2 --level=3 --batch`
+- **禁止**：-p- 全端口扫描、--dump-all（这两条在任何模式下都禁止）
+- 可以多轮深入，每类漏洞允许 4-8 条命令。
+"""
+
+
 class AttackToolMasterConfig:
-    def __init__(self, tools_path: str = None, prompt=None):
+    def __init__(self, tools_path: str = None, prompt=None, scan_mode: str = "fast"):
         if tools_path is None:
             tools_path = DEFAULT_TOOLS_PATH
         self.provider = ProviderFactory.create_from_env(agent_type="attacker")
         self.model = self.provider.model
+        self.scan_mode = scan_mode
 
         if prompt is None:
             prompt = WEAPON_MASTER_PROMPT_ZH
+        if scan_mode == "fast":
+            prompt += FAST_MODE_WEAPON_APPENDIX
+        elif scan_mode == "deep":
+            prompt += DEEP_MODE_WEAPON_APPENDIX
 
         self.tools_path = tools_path
         self.system_prompt = prompt

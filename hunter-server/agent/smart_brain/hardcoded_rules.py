@@ -144,12 +144,14 @@ class HardcodedRules:
 
         return RuleResult()
 
-    def check_loop_limit(self, context: dict) -> RuleResult:
+    def check_loop_limit(self, context: dict, max_steps: int = 50, confirm_interval: int = 10) -> RuleResult:
         """
         检查循环限制，防止无限循环
 
         Args:
             context: 当前上下文
+            max_steps: 最大步数（0 表示不限制）
+            confirm_interval: 确认间隔步数（0 表示不确认）
 
         Returns:
             RuleResult
@@ -157,10 +159,10 @@ class HardcodedRules:
         action_count = context.get("action_count", 0)
 
         # 1. 最大步数限制
-        if action_count >= 50:
+        if max_steps > 0 and action_count >= max_steps:
             return RuleResult(
                 should_abort=True,
-                reason="达到最大步数限制（50步）"
+                reason=f"达到最大步数限制（{max_steps}步）"
             )
 
         # 2. 无进展检测
@@ -179,8 +181,8 @@ class HardcodedRules:
                 reason="连续5次任务失败"
             )
 
-        # 4. 定期确认（每10步）
-        if action_count > 0 and action_count % 10 == 0:
+        # 4. 定期确认
+        if confirm_interval > 0 and action_count > 0 and action_count % confirm_interval == 0:
             return RuleResult(
                 need_confirm=True,
                 message=f"已执行{action_count}步操作，是否继续？"

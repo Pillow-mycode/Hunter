@@ -211,6 +211,7 @@ class AgentLoop(threading.Thread):
 
     def stop(self):
         self._stop_flag.set()
+        self.mission_complete.set()
 
     def get_result(self) -> dict:
         return self._result

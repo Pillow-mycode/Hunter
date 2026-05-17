@@ -46,7 +46,7 @@ KNOWN_DURATIONS: list[tuple[list[str], int, int, str]] = [
     (['nmap -sV', 'nmap -sC', 'nmap -A'], 30, 600, 'nmap 服务扫描'),
     (['nmap -p-'], 60, 3600, 'nmap 全端口扫描'),
     (['nmap'], 10, 300, 'nmap 默认扫描'),
-    (['gobuster', 'dirb', 'dirsearch', 'feroxbuster', 'ffuf'], 30, 1800, '目录扫描'),
+    (['ffuf'], 30, 1800, '目录扫描'),
     (['sqlmap'], 60, 3600, 'SQL 注入测试'),
     (['hydra', 'medusa'], 120, 7200, '密码爆破'),
     (['hashcat', 'john'], 30, 3600, '密码破解'),

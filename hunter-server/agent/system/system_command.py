@@ -262,6 +262,9 @@ def sys_shell(bash: str):
 
     try:
         active_process["needs_interaction"] = False
+        _console_budget = 800   # 直接打印的前 N 字符
+        _console_printed = 0
+        _console_last_status = 0
 
         if pty_type == "pty":
             import select
@@ -295,8 +298,13 @@ def sys_shell(bash: str):
                         decoded = data.decode('utf-8', errors='replace')
                         with output_lock:
                             output += decoded
-                        # 实时打印到控制台
-                        print(decoded, end='', flush=True)
+                        # 节流控制台打印：前 N 字符直接输出，之后定期报告
+                        _console_printed += len(decoded)
+                        if _console_printed <= _console_budget:
+                            print(decoded, end='', flush=True)
+                        elif len(output) - _console_last_status >= 5000:
+                            print(f"\n     … 已输出 {len(output)} 字符 …", flush=True)
+                            _console_last_status = len(output)
                         write_to_logs(decoded)
                         timer.reset()
 
@@ -334,8 +342,13 @@ def sys_shell(bash: str):
                 if data:
                     with output_lock:
                         output += data
-                    # 实时打印到控制台
-                    print(data, end='', flush=True)
+                    # 节流控制台打印
+                    _console_printed += len(data)
+                    if _console_printed <= _console_budget:
+                        print(data, end='', flush=True)
+                    elif len(output) - _console_last_status >= 5000:
+                        print(f"\n     … 已输出 {len(output)} 字符 …", flush=True)
+                        _console_last_status = len(output)
                     write_to_logs(data)
                     timer.reset()
 
@@ -395,6 +408,9 @@ def write_input_to_active_process(input_text: str):
             return None
 
         active_process["needs_interaction"] = False
+        _console_budget2 = 800
+        _console_printed2 = 0
+        _console_last_status2 = 0
 
         # ===== 继续读取 =====
         if pty_type == "pty":
@@ -421,8 +437,12 @@ def write_input_to_active_process(input_text: str):
                         decoded = data.decode(errors="ignore")
                         with output_lock:
                             output += decoded
-                        # 实时打印到控制台
-                        print(decoded, end='', flush=True)
+                        _console_printed2 += len(decoded)
+                        if _console_printed2 <= _console_budget2:
+                            print(decoded, end='', flush=True)
+                        elif len(output) - _console_last_status2 >= 5000:
+                            print(f"\n     … 已输出 {len(output)} 字符 …", flush=True)
+                            _console_last_status2 = len(output)
                         write_to_logs(decoded)
                         timer.reset()
 
@@ -450,8 +470,12 @@ def write_input_to_active_process(input_text: str):
                 if data:
                     with output_lock:
                         output += data
-                    # 实时打印到控制台
-                    print(data, end='', flush=True)
+                    _console_printed2 += len(data)
+                    if _console_printed2 <= _console_budget2:
+                        print(data, end='', flush=True)
+                    elif len(output) - _console_last_status2 >= 5000:
+                        print(f"\n     … 已输出 {len(output)} 字符 …", flush=True)
+                        _console_last_status2 = len(output)
                     write_to_logs(data)
                     timer.reset()
 

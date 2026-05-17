@@ -244,6 +244,95 @@ const elements = {
     advancedBtnSave: () => document.getElementById('advancedBtnSave')
 };
 
+// Agent 面板管理（多分区 UI）
+const agentPanels = new Map();
+
+function getAgentTypeLabel(agentType, agentId) {
+    const labels = {
+        'leader': '渗透专家',
+        'tool_master': '武器大师',
+        'data_analyst': '数据分析员',
+        'hawkeye': '鹰眼',
+    };
+    const base = labels[agentType] || agentType;
+    if (agentType === 'tool_master') {
+        const num = agentId.split('_').pop() || '?';
+        return '武器大师 ' + num;
+    }
+    return base;
+}
+
+function getOrCreateAgentPanel(agentId, agentType, initialStatus) {
+    initialStatus = initialStatus || 'running';
+    if (agentPanels.has(agentId)) {
+        const panel = agentPanels.get(agentId);
+        panel.classList.remove('recycling');
+        const status = panel.querySelector('.panel-status');
+        if (status) status.className = 'panel-status ' + initialStatus;
+        return panel;
+    }
+
+    const label = getAgentTypeLabel(agentType, agentId);
+    const panel = document.createElement('div');
+    panel.className = 'agent-panel agent-' + agentType;
+    panel.id = 'panel-' + agentId;
+    panel.innerHTML =
+        '<div class="panel-header">' +
+            '<span class="panel-title">' + label + '</span>' +
+            '<span class="panel-status ' + initialStatus + '"></span>' +
+        '</div>' +
+        '<div class="panel-body"></div>';
+
+    if (agentType === 'leader') {
+        const grid = document.getElementById('agentPanelsGrid');
+        const container = elements.chatMessages();
+        if (grid && grid.nextSibling) {
+            container.insertBefore(panel, grid.nextSibling);
+        } else {
+            container.appendChild(panel);
+        }
+    } else {
+        const grid = document.getElementById('agentPanelsGrid');
+        if (grid) {
+            grid.appendChild(panel);
+        } else {
+            elements.chatMessages().appendChild(panel);
+        }
+    }
+
+    agentPanels.set(agentId, panel);
+    smartScroll();
+    return panel;
+}
+
+function routeToAgentPanel(agentId, agentType, message, timestamp, initialStatus) {
+    const panel = getOrCreateAgentPanel(agentId, agentType, initialStatus);
+    state.activePanelBody = panel.querySelector('.panel-body');
+    handleProgressMessage(message, timestamp);
+    state.activePanelBody = null;
+}
+
+function recycleAllMasterPanels() {
+    agentPanels.forEach(function(panel, agentId) {
+        if (panel.classList.contains('agent-leader')) return;
+        const status = panel.querySelector('.panel-status');
+        if (status) status.className = 'panel-status done';
+        setTimeout(function() {
+            if (!panel.parentNode) return;
+            panel.classList.add('recycling');
+            panel.addEventListener('animationend', function() {
+                panel.remove();
+                agentPanels.delete(agentId);
+            }, { once: true });
+        }, 2000);
+    });
+}
+
+function resetAllPanels() {
+    agentPanels.forEach(function(panel) { panel.remove(); });
+    agentPanels.clear();
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     autoResizeTextarea();
@@ -522,7 +611,30 @@ function renderSettingsForm(tabName, idPrefix) {
         '<div class="settings-field">' +
             '<label for="settings-api-key' + idPrefix + '">' + t('apiKey') + '</label>' +
             '<input type="password" id="settings-api-key' + idPrefix + '" autocomplete="off" value="' + escapeHtml(form.api_key) + '" placeholder="' + (form.has_existing_key ? t('apiKeyPlaceholder') : t('apiKeyPlaceholderEmpty')) + '">' +
-        '</div>';
+        '</div>' +
+
+        // 步数限制字段（仅默认标签页显示）
+        (idPrefix === '' ? (
+            '<div class="settings-field">' +
+                '<label for="settings-max-steps">最大步数</label>' +
+                '<input type="number" id="settings-max-steps" value="' + (localStorage.getItem('hunter_max_steps') || '50') + '" min="10" max="200" step="5">' +
+            '</div>' +
+            '<div class="settings-field">' +
+                '<label for="settings-confirm-interval">确认间隔（步）</label>' +
+                '<input type="number" id="settings-confirm-interval" value="' + (localStorage.getItem('hunter_confirm_interval') || '10') + '" min="5" max="50" step="5">' +
+            '</div>' +
+            '<div class="settings-field">' +
+                '<label>扫描模式</label>' +
+                '<div class="scan-mode-toggle">' +
+                    '<label class="radio-label"><input type="radio" name="scan-mode" value="fast"' +
+                        ((localStorage.getItem('hunter_scan_mode') || 'fast') === 'fast' ? ' checked' : '') +
+                    '> 快速模式（轻量扫描，小字典）</label>' +
+                    '<label class="radio-label"><input type="radio" name="scan-mode" value="deep"' +
+                        (localStorage.getItem('hunter_scan_mode') === 'deep' ? ' checked' : '') +
+                    '> 深度模式（全面扫描，大字典）</label>' +
+                '</div>' +
+            '</div>'
+        ) : '');
 
     // 设置预设下拉值
     const presetSelect = document.getElementById('settings-preset' + idPrefix);
@@ -650,6 +762,14 @@ async function saveConfig() {
             resultEl.textContent = '✓ ' + t('saveSuccess');
             resultEl.className = 'test-result success';
 
+            // 持久化步数限制配置（客户端本地存储）
+            const maxStepsEl = document.getElementById('settings-max-steps');
+            const confirmIntervalEl = document.getElementById('settings-confirm-interval');
+            if (maxStepsEl) localStorage.setItem('hunter_max_steps', maxStepsEl.value);
+            if (confirmIntervalEl) localStorage.setItem('hunter_confirm_interval', confirmIntervalEl.value);
+            const scanModeEl = document.querySelector('input[name="scan-mode"]:checked');
+            if (scanModeEl) localStorage.setItem('hunter_scan_mode', scanModeEl.value);
+
             agents.forEach(agent => {
                 if (state.settingsFormData[agent] && state.settingsFormData[agent].api_key) {
                     state.settingsFormData[agent].has_existing_key = true;
@@ -758,6 +878,7 @@ async function sendMessage() {
 
     // 移除旧的活跃进度容器标记，为新消息准备
     deactivateProgressContainers();
+    recycleAllMasterPanels();
 
     // 添加用户消息
     addMessage('user', message);
@@ -814,9 +935,17 @@ async function sendMessage() {
         // 通过 WebSocket 发送消息
         const currentWs = state.websockets[sessionId];
         if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+            const maxSteps = parseInt(localStorage.getItem('hunter_max_steps') || '50');
+            const confirmInterval = parseInt(localStorage.getItem('hunter_confirm_interval') || '10');
+            const scanMode = localStorage.getItem('hunter_scan_mode') || 'fast';
             currentWs.send(JSON.stringify({
                 type: 'message',
-                data: { message: message }
+                data: {
+                    message: message,
+                    max_steps: maxSteps,
+                    confirm_interval: confirmInterval,
+                    scan_mode: scanMode
+                }
             }));
             console.log(`[发送消息] 已通过 WebSocket 发送消息`);
 
@@ -940,6 +1069,7 @@ function handleServerMessage(sessionId, data) {
             // 只在当前会话时，移除旧的活跃进度容器标记，为新任务准备
             if (isCurrentSession) {
                 deactivateProgressContainers();
+                recycleAllMasterPanels();
             }
             break;
 
@@ -956,13 +1086,17 @@ function handleServerMessage(sessionId, data) {
             }
             state.sessionProgress[sessionId].push({
                 message: payload.message,
-                timestamp: data.timestamp
+                timestamp: data.timestamp,
+                agent_id: payload.agent_id,
+                agent_type: payload.agent_type
             });
 
-            // 只在当前会话时显示进度
+            // 只在当前会话时显示进度，按 agent 路由到对应面板
             if (isCurrentSession) {
-                console.log(`[消息处理] 显示进度消息: ${payload.message}`);
-                handleProgressMessage(payload.message, data.timestamp);
+                const agentId = payload.agent_id || 'leader';
+                const agentType = payload.agent_type || 'leader';
+                console.log(`[消息处理] 显示进度消息: [${agentId}] ${payload.message}`);
+                routeToAgentPanel(agentId, agentType, payload.message, data.timestamp);
             }
             break;
 
@@ -1014,6 +1148,7 @@ function handleServerMessage(sessionId, data) {
                 removeTypingIndicator();
                 handleCompleted(payload.result);
                 showSendButton();
+                recycleAllMasterPanels();
             }
             // WebSocket 保持连接，等待下一条消息
             console.log(`[消息处理] 任务完成，WebSocket 保持连接`);
@@ -1101,6 +1236,13 @@ function handleProgressMessage(message, timestamp) {
         return;
     }
 
+    // 叙述消息（Leader 决策的自然语言旁白）
+    if (message.startsWith('[叙述]')) {
+        const narration = message.substring(4).trim();
+        addNarration(narration);
+        return;
+    }
+
     // 旧版武器大师命令（兼容）
     if (message.startsWith('[武器大师] 正在运行:')) {
         const cmd = message.substring('[武器大师] 正在运行:'.length).trim();
@@ -1114,7 +1256,7 @@ function handleProgressMessage(message, timestamp) {
 
 // 添加文件通知
 function addFileNotification(fileInfo) {
-    const container = elements.chatMessages();
+    const container = state.activePanelBody || elements.chatMessages();
 
     const notificationEl = document.createElement('div');
     notificationEl.className = 'message assistant file-notification';
@@ -1134,12 +1276,12 @@ function addFileNotification(fileInfo) {
         container.appendChild(notificationEl);
     }
 
-    scrollToBottom();
+    smartScroll();
 }
 
 // 添加命令行显示
 function addCommandLine(cmd, timestamp) {
-    const container = elements.chatMessages();
+    const container = state.activePanelBody || elements.chatMessages();
     // 只查找当前活跃的进度消息容器
     let progressMsg = container.querySelector('.message.progress.active');
 
@@ -1170,13 +1312,16 @@ function addCommandLine(cmd, timestamp) {
     `;
     content.appendChild(line);
 
-    scrollToBottom();
+    smartScroll();
 }
 
 // ── 命令块渲染 (Claude Code 风格: ● Bash(cmd) ⎿ output) ──
 
 function addCmdBlock(cmd, timestamp) {
-    const container = elements.chatMessages();
+    const container = state.activePanelBody || elements.chatMessages();
+
+    // 停用之前的活跃进度容器，确保后续进度消息出现在命令块下方
+    deactivateProgressContainers();
 
     const block = document.createElement('div');
     block.className = 'message assistant cmd-block';
@@ -1199,11 +1344,11 @@ function addCmdBlock(cmd, timestamp) {
         container.appendChild(block);
     }
 
-    scrollToBottom();
+    smartScroll();
 }
 
 function appendCmdOutput(text) {
-    const container = elements.chatMessages();
+    const container = state.activePanelBody || elements.chatMessages();
     const block = container.querySelector('.cmd-block:last-of-type');
     if (!block) return;
 
@@ -1228,11 +1373,11 @@ function appendCmdOutput(text) {
     }
 
     block._cmdLineCount = (output.textContent.match(/\n/g) || []).length + 1;
-    scrollToBottom();
+    smartScroll();
 }
 
 function finishCmdBlock() {
-    const container = elements.chatMessages();
+    const container = state.activePanelBody || elements.chatMessages();
     const block = container.querySelector('.cmd-block:last-of-type');
     if (!block) return;
 
@@ -1267,9 +1412,29 @@ function finishCmdBlock() {
     }
 }
 
+// 添加叙述消息（LLM 自然语言旁白，无头像，斜体）
+function addNarration(text) {
+    const container = state.activePanelBody || elements.chatMessages();
+    const block = document.createElement('div');
+    block.className = 'message assistant narration';
+    block.innerHTML = `
+        <div class="message-avatar"></div>
+        <div class="message-content">
+            <div class="narration-text">${escapeHtml(text)}</div>
+        </div>
+    `;
+    const typingMsg = container.querySelector('.message.typing');
+    if (typingMsg) {
+        container.insertBefore(block, typingMsg);
+    } else {
+        container.appendChild(block);
+    }
+    smartScroll();
+}
+
 // 添加进度行
 function addProgressLine(message, timestamp) {
-    const container = elements.chatMessages();
+    const container = state.activePanelBody || elements.chatMessages();
     // 只查找当前活跃的进度消息容器
     let progressMsg = container.querySelector('.message.progress.active');
 
@@ -1300,7 +1465,7 @@ function addProgressLine(message, timestamp) {
     `;
     content.appendChild(line);
 
-    scrollToBottom();
+    smartScroll();
 }
 
 // 添加消息
@@ -1423,9 +1588,9 @@ function addConfirmRequest(message, task, sessionId) {
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant confirm-required';
     messageEl.innerHTML = `
-        <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
+        <div class="message-avatar"></div>
         <div class="message-content">
-            <p>${escapeHtml(message)}${escapeHtml(taskInfo)}</p>
+            <div class="confirm-text">${escapeHtml(message)}${escapeHtml(taskInfo)}</div>
             <div class="confirm-buttons">
                 <button class="btn-yes" onclick="confirmAction(true, this, '${sessionId}')">${t('confirm')}</button>
                 <button class="btn-no" onclick="confirmAction(false, this, '${sessionId}')">${t('cancel')}</button>
@@ -1549,7 +1714,7 @@ function addFinalMessage(role, content, type = '') {
 
     // 消息由服务端自动保存，客户端不再本地存储
 
-    scrollToBottom();
+    smartScroll();
 }
 
 // 添加加载指示器
@@ -1583,6 +1748,7 @@ function newChat() {
 
     state.currentSessionId = null;
     state.messages = [];
+    resetAllPanels();
 
     elements.currentTaskId().textContent = '';
     elements.chatTitle().textContent = t('chatTitle');
@@ -1594,6 +1760,7 @@ function newChat() {
             <h2>${t('welcomeTitle')}</h2>
             <p>${t('welcomeDesc')}</p>
         </div>
+        <div class="agent-panels-grid" id="agentPanelsGrid"></div>
     `;
 
     showSendButton();
@@ -1673,8 +1840,9 @@ async function loadSession(sessionId) {
     }
 
     // 清空当前聊天区域
+    resetAllPanels();
     const container = elements.chatMessages();
-    container.innerHTML = '';
+    container.innerHTML = '<div class="agent-panels-grid" id="agentPanelsGrid"></div>';
 
     // 显示加载提示
     addTypingIndicator();
@@ -1768,8 +1936,13 @@ function renderHistoryMessages(messages) {
                 break;
 
             case 'progress':
-                // 进度消息 - 合并到进度容器
-                currentProgressContainer = addHistoryProgressLine(content, msg.created_at, currentProgressContainer);
+                // 进度消息 - 按 agent 路由到面板（历史回放用 done 状态）
+                {
+                    const meta = msg.metadata || {};
+                    const agentId = meta.agent_id || 'leader';
+                    const agentType = meta.agent_type || 'leader';
+                    routeToAgentPanel(agentId, agentType, content, msg.created_at, 'done');
+                }
                 break;
 
             case 'command':
@@ -1930,9 +2103,9 @@ function addHistoryConfirmRequest(message) {
     const messageEl = document.createElement('div');
     messageEl.className = 'message assistant confirm-required history';
     messageEl.innerHTML = `
-        <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
+        <div class="message-avatar"></div>
         <div class="message-content">
-            <p>${escapeHtml(message)}</p>
+            <div class="confirm-text">${escapeHtml(message)}</div>
             <div class="confirm-buttons disabled">
                 <span class="history-label">${t('processed')}</span>
             </div>
@@ -2011,6 +2184,15 @@ function scrollToBottom() {
     container.scrollTop = container.scrollHeight;
 }
 
+function smartScroll() {
+    const container = elements.chatMessages();
+    const threshold = 120; // px from bottom — only scroll if user is already following
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom < threshold) {
+        container.scrollTop = container.scrollHeight;
+    }
+}
+
 // 会话导出
 async function exportSession(format) {
     const sessionId = state.currentSessionId;
@@ -2046,7 +2228,7 @@ function downloadBlob(blob, filename) {
 
 // 移除所有进度容器的活跃标记
 function deactivateProgressContainers() {
-    const container = elements.chatMessages();
+    const container = state.activePanelBody || elements.chatMessages();
     const activeContainers = container.querySelectorAll('.message.progress.active');
     activeContainers.forEach(el => el.classList.remove('active'));
 }

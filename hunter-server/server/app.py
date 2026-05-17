@@ -47,6 +47,7 @@ from agent.team.blackboard import Blackboard
 from agent.team.agent_loop import AgentLoop
 from agent.team.agent_pool import AgentPool
 from agent.team.protocol import InterAgentMessage
+from agent.system.system_command import active_process, clear_active_process
 from llm.factory import ProviderFactory
 from server.config_api import router as config_router
 
@@ -153,6 +154,19 @@ class SessionManager:
         if session and session["status"] == "running":
             self.task_cancelled[session_id] = True
             self.db.update_session_status(session_id, "idle")
+            # 终止正在运行的 PTY 进程
+            try:
+                proc = active_process.get("process")
+                if proc is not None and proc.poll() is None:
+                    print(f"[取消] 正在终止活跃进程 PID={proc.pid} ...")
+                    proc.kill()
+                    try:
+                        proc.wait(timeout=5)
+                    except Exception:
+                        proc.terminate()
+                clear_active_process()
+            except Exception as e:
+                print(f"[取消] 清理进程时出错: {e}")
             # 通过 CommBus 广播中止消息给所有 Agent
             comm_bus = self.comm_buses.get(session_id)
             if comm_bus:
@@ -163,7 +177,7 @@ class SessionManager:
                     content="[系统] 任务已被用户取消，请立即停止所有操作。",
                 )
                 comm_bus.broadcast(cancel_msg)
-            # 停止所有 AgentLoop
+            # 停止所有 AgentLoop（会设置 mission_complete 唤醒等待者）
             loops = self.agent_loops.get(session_id, {})
             for loop in loops.values():
                 loop.stop()
@@ -189,17 +203,22 @@ class SessionManager:
         return self.leader_instances[session_id]
 
     def setup_team(self, session_id: str, main_loop, on_need_input, on_need_confirm,
-                   max_steps: int = 50, confirm_interval: int = 10):
+                   max_steps: int = 50, confirm_interval: int = 10, scan_mode: str = "fast"):
         """创建 Agent 团队：CommBus + Blackboard + AgentPool + AgentLoops。
 
         返回 (leader, loops_dict)。会话复用时创建新的 AgentLoop 线程。
         """
-        def on_agent_progress(message: str):
-            print(message)
-            asyncio.run_coroutine_threadsafe(
-                store_and_send_progress(session_id, "progress", message, message),
-                main_loop
-            )
+        def make_progress_callback(agent_id: str, agent_type: str):
+            def on_progress(message: str):
+                # 控制台输出由各 Agent 的 _notify_progress 负责（已含紧凑格式）
+                asyncio.run_coroutine_threadsafe(
+                    store_and_send_progress(session_id, "progress", message, message, {
+                        "agent_id": agent_id,
+                        "agent_type": agent_type,
+                    }),
+                    main_loop
+                )
+            return on_progress
 
         if session_id in self.comm_buses:
             # 会话复用路径
@@ -218,20 +237,26 @@ class SessionManager:
             for aid, old_loop in old_loops.items():
                 agents[aid] = old_loop.agent
 
-            leader.on_progress = on_agent_progress
+            leader.on_progress = make_progress_callback("leader", "leader")
             leader.on_need_input = on_need_input
             leader.on_need_confirm = on_need_confirm
             leader._max_steps = max_steps
             leader._confirm_interval = confirm_interval
+            if hasattr(leader, 'config'):
+                leader.config.scan_mode = scan_mode
+            if pool:
+                pool.register_factory("tool_master",
+                    lambda iid: AttackToolMaster(AttackToolMasterConfig(scan_mode=scan_mode),
+                                                 comm_bus=comm_bus, blackboard=blackboard, agent_id=iid, agent_pool=pool))
             for aid, agent in agents.items():
                 if hasattr(agent, 'on_progress'):
-                    agent.on_progress = on_agent_progress
+                    agent.on_progress = make_progress_callback(aid, aid.rsplit("_", 1)[0])
                 if hasattr(agent, 'on_need_input'):
                     agent.on_need_input = on_need_input
             if pool and hasattr(pool, 'set_new_instance_callback'):
                 def _setup_new_instance(iid, agent):
                     if hasattr(agent, 'on_progress'):
-                        agent.on_progress = on_agent_progress
+                        agent.on_progress = make_progress_callback(iid, iid.rsplit("_", 1)[0])
                     if hasattr(agent, 'on_need_input'):
                         agent.on_need_input = on_need_input
                 pool.set_new_instance_callback(_setup_new_instance)
@@ -279,7 +304,7 @@ class SessionManager:
         # 3. AgentPool + 工厂注册（在 Leader 之前创建）
         pool = AgentPool(comm_bus, blackboard)
         pool.register_factory("tool_master",
-            lambda iid: AttackToolMaster(AttackToolMasterConfig(),
+            lambda iid: AttackToolMaster(AttackToolMasterConfig(scan_mode=scan_mode),
                                          comm_bus=comm_bus, blackboard=blackboard, agent_id=iid, agent_pool=pool))
         pool.register_factory("data_analyst",
             lambda iid: DataAnalyst(DataAnalystConfig(),
@@ -289,7 +314,7 @@ class SessionManager:
                                 comm_bus=comm_bus, blackboard=blackboard, agent_id=iid, agent_pool=pool))
 
         # 4. Leader 实例
-        leader_config = AttackLeaderConfig()
+        leader_config = AttackLeaderConfig(scan_mode=scan_mode)
         leader = AttackLeader(leader_config, comm_bus=comm_bus, blackboard=blackboard, agent_pool=pool)
         leader._max_steps = max_steps
         leader._confirm_interval = confirm_interval
@@ -317,28 +342,30 @@ class SessionManager:
         def on_agent_message(msg: InterAgentMessage):
             ctx_info = f" task={msg.task_id}" if msg.task_id else ""
             print(f"[CommBus] {msg.from_agent} → {msg.to_agent} | {msg.msg_type}{ctx_info} | {msg.content[:150]}")
+            from_type = msg.from_agent.rsplit("_", 1)[0] if "_" in msg.from_agent else msg.from_agent
             asyncio.run_coroutine_threadsafe(
                 store_and_send_progress(
                     session_id, "progress",
                     f"[{msg.from_agent}→{msg.to_agent}] {msg.msg_type}: {msg.content[:200]}",
-                    f"[{msg.from_agent}→{msg.to_agent}] {msg.content[:200]}"
+                    f"[{msg.from_agent}→{msg.to_agent}] {msg.content[:200]}",
+                    {"agent_id": msg.from_agent, "agent_type": from_type}
                 ),
                 main_loop
             )
         comm_bus.on_send = on_agent_message
 
         # 8. Leader 回调 + Agent 进度回调
-        leader.on_progress = on_agent_progress
+        leader.on_progress = make_progress_callback("leader", "leader")
         leader.on_need_input = on_need_input
         leader.on_need_confirm = on_need_confirm
         for iid, agent in pool.list_instances().items():
             if hasattr(agent, 'on_progress'):
-                agent.on_progress = on_agent_progress
+                agent.on_progress = make_progress_callback(iid, iid.rsplit("_", 1)[0])
             if hasattr(agent, 'on_need_input'):
                 agent.on_need_input = on_need_input
         def _setup_new_instance(iid, agent):
             if hasattr(agent, 'on_progress'):
-                agent.on_progress = on_agent_progress
+                agent.on_progress = make_progress_callback(iid, iid.rsplit("_", 1)[0])
             if hasattr(agent, 'on_need_input'):
                 agent.on_need_input = on_need_input
         pool.set_new_instance_callback(_setup_new_instance)
@@ -744,12 +771,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     # 提取步数配置（客户端可配）
                     max_steps = data.get("data", {}).get("max_steps", 50)
                     confirm_interval = data.get("data", {}).get("confirm_interval", 10)
+                    scan_mode = data.get("data", {}).get("scan_mode", "fast")
 
                     # 启动任务执行
                     asyncio.create_task(run_session_task(
                         session_id, user_message,
                         max_steps=max_steps,
-                        confirm_interval=confirm_interval
+                        confirm_interval=confirm_interval,
+                        scan_mode=scan_mode
                     ))
 
             elif msg_type == "input":
@@ -774,7 +803,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         session_manager.websockets.pop(session_id, None)
 
 
-async def run_session_task(session_id: str, command: str, max_steps: int = 50, confirm_interval: int = 10):
+async def run_session_task(session_id: str, command: str, max_steps: int = 50, confirm_interval: int = 10, scan_mode: str = "fast"):
     """执行会话中的任务 — AgentLoop 异步协作模式"""
     session = session_manager.get_session(session_id)
     if not session:
@@ -820,7 +849,8 @@ async def run_session_task(session_id: str, command: str, max_steps: int = 50, c
         # 1. 创建团队（CommBus + Blackboard + 4 agents + 4 AgentLoops）
         leader, loops = session_manager.setup_team(
             session_id, main_loop, on_need_input, on_need_confirm,
-            max_steps=max_steps, confirm_interval=confirm_interval
+            max_steps=max_steps, confirm_interval=confirm_interval,
+            scan_mode=scan_mode
         )
         blackboard = session_manager.blackboards[session_id]
 
@@ -839,7 +869,10 @@ async def run_session_task(session_id: str, command: str, max_steps: int = 50, c
             raise RuntimeError("Leader AgentLoop not found")
 
         def wait_for_completion():
-            leader_loop.mission_complete.wait()
+            while not leader_loop.mission_complete.is_set():
+                if is_cancelled():
+                    return None
+                leader_loop.mission_complete.wait(timeout=2.0)
             return leader_loop.get_result()
 
         result = await main_loop.run_in_executor(None, wait_for_completion)
@@ -923,12 +956,15 @@ def _build_report_from_blackboard(blackboard, leader_summary: str = "") -> dict:
     return report
 
 
-async def store_and_send_progress(session_id: str, msg_type: str, content: str, raw_message: str):
-    """存储并发送进度消息"""
+async def store_and_send_progress(session_id: str, msg_type: str, content: str, raw_message: str, metadata: dict = None):
+    """存储并发送进度消息（可附带 agent_id/agent_type 等元数据）"""
     # 存储到数据库
-    session_manager.add_message(session_id, msg_type, content)
-    # 发送到客户端
-    await session_manager.send_message(session_id, "progress", {"message": raw_message})
+    session_manager.add_message(session_id, msg_type, content, metadata)
+    # 发送到客户端，合并 metadata 到 data
+    data = {"message": raw_message}
+    if metadata:
+        data.update(metadata)
+    await session_manager.send_message(session_id, "progress", data)
 
 
 def build_reply_content(report: dict) -> str:
