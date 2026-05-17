@@ -18,11 +18,11 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 class DataAnalyst(AgentBase):
     AGENT_ID = "data_analyst"
 
-    def __init__(self, config: DataAnalystConfig = None, comm_bus=None, blackboard=None, agent_id: str = ""):
+    def __init__(self, config: DataAnalystConfig = None, comm_bus=None, blackboard=None, agent_id: str = "", agent_pool=None):
         self.config = config or DataAnalystConfig()
         self.system_prompt = self.config.system_prompt
         if comm_bus and blackboard:
-            super().__init__(comm_bus, blackboard, agent_id=agent_id)
+            super().__init__(comm_bus, blackboard, agent_id=agent_id, agent_pool=agent_pool)
 
     def _call_llm(self, content: str) -> str:
         """调用 LLM 分析内容"""
@@ -149,6 +149,9 @@ class DataAnalyst(AgentBase):
             return {"type": "wait"}
 
         msgs = self.drain_inbox()
+        if not msgs:
+            self.release_to_pool()
+            return {"type": "wait"}
         for msg in msgs:
             if self._abort_event and self._abort_event.is_set():
                 break

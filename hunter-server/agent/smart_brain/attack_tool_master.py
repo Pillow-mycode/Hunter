@@ -22,7 +22,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 class AttackToolMaster(AgentBase):
     AGENT_ID = "tool_master"
 
-    def __init__(self, config: AttackToolMasterConfig, comm_bus=None, blackboard=None, agent_id: str = ""):
+    def __init__(self, config: AttackToolMasterConfig, comm_bus=None, blackboard=None, agent_id: str = "", agent_pool=None):
         self.messages = []
         self.tools = config.tools
         self.config = config
@@ -41,7 +41,7 @@ class AttackToolMaster(AgentBase):
         self.stream_callback = None
 
         if comm_bus and blackboard:
-            super().__init__(comm_bus, blackboard, agent_id=agent_id)
+            super().__init__(comm_bus, blackboard, agent_id=agent_id, agent_pool=agent_pool)
 
     def _notify_progress(self, message: str):
         """发送进度通知到客户端"""

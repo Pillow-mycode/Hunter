@@ -11,11 +11,11 @@ from agent.team.protocol import MSG_INPUT_ALERT
 class Hawkeye(AgentBase):
     AGENT_ID = "hawkeye"
 
-    def __init__(self, config: HawkeyeConfig, comm_bus=None, blackboard=None, agent_id: str = ""):
+    def __init__(self, config: HawkeyeConfig, comm_bus=None, blackboard=None, agent_id: str = "", agent_pool=None):
         self.config = config
         self._last_check_output = ""
         if comm_bus and blackboard:
-            super().__init__(comm_bus, blackboard, agent_id=agent_id)
+            super().__init__(comm_bus, blackboard, agent_id=agent_id, agent_pool=agent_pool)
 
 
     def get_response(self, messages):
@@ -61,6 +61,9 @@ class Hawkeye(AgentBase):
             return {"type": "wait"}
 
         msgs = self.drain_inbox()
+        if not msgs:
+            self.release_to_pool()
+            return {"type": "wait"}
         for msg in msgs:
             if self._abort_event and self._abort_event.is_set():
                 break
