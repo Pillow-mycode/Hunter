@@ -1173,28 +1173,25 @@ function addCommandLine(cmd, timestamp) {
     scrollToBottom();
 }
 
-// ── 命令块渲染 (CMD_START / CMD_OUTPUT / CMD_END) ──────────────
+// ── 命令块渲染 (Claude Code 风格: ● Bash(cmd) ⎿ output) ──
 
 function addCmdBlock(cmd, timestamp) {
     const container = elements.chatMessages();
-    const time = timestamp ? new Date(timestamp).toLocaleTimeString() : '';
 
     const block = document.createElement('div');
     block.className = 'message assistant cmd-block';
+    block._cmdLineCount = 0;
     block.innerHTML = `
-        <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
+        <div class="message-avatar"></div>
         <div class="message-content">
             <div class="cmd-header">
-                <span class="cmd-indicator">▸</span>
+                <span class="cmd-indicator">●</span>
                 <code class="cmd-text">${escapeHtml(cmd)}</code>
-                <span class="cmd-time">${time}</span>
-                <span class="cmd-status running">${t('runningCmd')}</span>
             </div>
-            <pre class="cmd-output"><code></code></pre>
+            <div class="cmd-waiting">Running…</div>
         </div>
     `;
 
-    // 插入到 typing indicator 之前
     const typingMsg = container.querySelector('.message.typing');
     if (typingMsg) {
         container.insertBefore(block, typingMsg);
@@ -1210,11 +1207,27 @@ function appendCmdOutput(text) {
     const block = container.querySelector('.cmd-block:last-of-type');
     if (!block) return;
 
-    const code = block.querySelector('.cmd-output code');
-    if (!code) return;
+    // Remove waiting indicator on first output
+    const waiting = block.querySelector('.cmd-waiting');
+    if (waiting) waiting.remove();
 
-    code.textContent += text;
-    block.querySelector('.cmd-output').scrollTop = block.querySelector('.cmd-output').scrollHeight;
+    let output = block.querySelector('.cmd-output');
+    if (!output) {
+        output = document.createElement('pre');
+        output.className = 'cmd-output';
+        block.querySelector('.message-content').appendChild(output);
+    }
+
+    const code = output.querySelector('code');
+    if (code) {
+        code.textContent += text;
+    } else {
+        const el = document.createElement('code');
+        el.textContent = text;
+        output.appendChild(el);
+    }
+
+    block._cmdLineCount = (output.textContent.match(/\n/g) || []).length + 1;
     scrollToBottom();
 }
 
@@ -1223,30 +1236,34 @@ function finishCmdBlock() {
     const block = container.querySelector('.cmd-block:last-of-type');
     if (!block) return;
 
-    const statusEl = block.querySelector('.cmd-status');
-    if (statusEl) {
-        statusEl.textContent = '✓ ' + t('done');
-        statusEl.className = 'cmd-status done';
-    }
+    // Remove waiting indicator if still present (no output case)
+    const waiting = block.querySelector('.cmd-waiting');
+    if (waiting) waiting.remove();
 
-    // 长输出折叠：超过 500 字符默认折叠
     const output = block.querySelector('.cmd-output');
-    const code = output ? output.querySelector('code') : null;
-    if (code && code.textContent.length > 500) {
-        output.classList.add('collapsed');
+    const lines = block._cmdLineCount || 0;
+
+    if (output && lines > 12) {
+        output.classList.add('expandable');
+
+        const hint = document.createElement('div');
+        hint.className = 'cmd-lines-hint';
         const btn = document.createElement('button');
-        btn.className = 'cmd-expand-btn';
         btn.textContent = t('expandOutput');
         btn.onclick = function () {
-            if (output.classList.contains('collapsed')) {
-                output.classList.remove('collapsed');
-                btn.textContent = t('collapseOutput');
-            } else {
-                output.classList.add('collapsed');
+            if (output.classList.contains('expanded')) {
+                output.classList.remove('expanded');
+                output.classList.add('expandable');
                 btn.textContent = t('expandOutput');
+            } else {
+                output.classList.remove('expandable');
+                output.classList.add('expanded');
+                btn.textContent = t('collapseOutput');
             }
         };
-        block.querySelector('.message-content').appendChild(btn);
+        hint.textContent = `… +${lines - 10} lines `;
+        hint.appendChild(btn);
+        block.querySelector('.message-content').appendChild(hint);
     }
 }
 

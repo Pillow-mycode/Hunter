@@ -369,40 +369,39 @@ body {
     color: var(--text-primary);
 }
 
-/* ── 命令块 (CMD_START / CMD_OUTPUT / CMD_END) ────────────── */
+/* ── 命令块 (Claude Code 风格) ────────────────────── */
 
 .message.cmd-block {
-    margin: 12px 0;
-    animation: fadeIn 0.3s ease;
+    margin: 10px 0;
+    animation: fadeIn 0.25s ease;
+}
+
+.message.cmd-block .message-avatar {
+    display: none;  /* Claude Code style: no avatar */
 }
 
 .message.cmd-block .message-content {
-    background: var(--message-assistant);
-    border-radius: 8px;
-    overflow: hidden;
+    background: transparent;
     padding: 0;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.85rem;
+    line-height: 1.55;
 }
 
 .cmd-header {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    background: rgba(255, 255, 255, 0.03);
-    border-bottom: 1px solid var(--border);
-    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-    font-size: 0.85rem;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 0;
 }
 
 .cmd-indicator {
     color: var(--accent);
-    font-weight: bold;
     font-size: 1rem;
     flex-shrink: 0;
 }
 
 .cmd-text {
-    flex: 1;
     color: var(--text-primary);
     font-family: inherit;
     font-size: inherit;
@@ -411,49 +410,17 @@ body {
     word-break: break-all;
 }
 
-.cmd-time {
-    color: var(--text-secondary);
-    font-size: 0.75rem;
-    flex-shrink: 0;
-}
-
-.cmd-status {
-    font-size: 0.75rem;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-weight: 500;
-    flex-shrink: 0;
-}
-
-.cmd-status.running {
-    color: var(--warning);
-    background: rgba(251, 191, 36, 0.1);
-    animation: pulse 1.5s infinite;
-}
-
-.cmd-status.done {
-    color: var(--success);
-    background: rgba(74, 222, 128, 0.1);
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
-
 .cmd-output {
-    margin: 0;
-    padding: 14px;
-    background: rgba(0, 0, 0, 0.2);
-    color: var(--text-primary);
-    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-    font-size: 0.82rem;
-    line-height: 1.5;
+    margin: 0 0 0 12px;
+    padding: 2px 0;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.83rem;
+    line-height: 1.55;
     white-space: pre-wrap;
     word-break: break-all;
-    max-height: 400px;
-    overflow-y: auto;
-    border-top: 1px solid rgba(255, 255, 255, 0.03);
+    max-height: 240px;
+    overflow-y: hidden;
 }
 
 .cmd-output code {
@@ -463,41 +430,66 @@ body {
     color: inherit;
 }
 
-/* 折叠状态 */
-.cmd-output.collapsed {
-    max-height: 180px;
+/* 折叠态 */
+.cmd-output.expandable {
+    max-height: 160px;
     position: relative;
 }
 
-.cmd-output.collapsed::after {
+.cmd-output.expandable::after {
     content: '';
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
-    height: 50px;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.5));
+    height: 40px;
+    background: linear-gradient(transparent, var(--bg-primary));
     pointer-events: none;
 }
 
-/* 展开/折叠按钮 */
-.cmd-expand-btn {
-    display: block;
-    width: 100%;
-    padding: 8px;
-    border: none;
-    border-top: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.02);
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 0.8rem;
-    font-family: inherit;
-    transition: background 0.2s;
+.cmd-output.expanded {
+    max-height: none;
 }
 
-.cmd-expand-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text-primary);
+.cmd-output.expanded::after {
+    display: none;
+}
+
+/* 行数提示 */
+.cmd-lines-hint {
+    margin: 2px 0 2px 12px;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-family: inherit;
+}
+
+.cmd-lines-hint button {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: inherit;
+    font-family: inherit;
+    padding: 0;
+    margin-left: 4px;
+}
+
+.cmd-lines-hint button:hover {
+    text-decoration: underline;
+}
+
+/* 等待动画 */
+.cmd-waiting {
+    margin: 2px 0 2px 12px;
+    color: var(--text-secondary);
+    font-size: 0.83rem;
+    font-family: inherit;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
 }
 
 /* 需要输入的消息 */
