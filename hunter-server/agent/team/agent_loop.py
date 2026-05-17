@@ -95,7 +95,9 @@ class AgentLoop(threading.Thread):
             for t in self.outstanding_tasks.values()
         ) if self.outstanding_tasks else False
         if prev.get("type") == "wait" and has_pending:
+            print(f"[AgentLoop] {self.agent.AGENT_ID} 阻塞等待结果... (pending={sum(1 for t in self.outstanding_tasks.values() if t.status not in ('COMPLETED','TIMEOUT'))})")
             self._wait_for_inbox_message(timeout=30.0)
+            print(f"[AgentLoop] {self.agent.AGENT_ID} 唤醒，继续决策")
 
         context = {
             "mission": self.blackboard.read("mission"),
@@ -107,6 +109,11 @@ class AgentLoop(threading.Thread):
         }
         decision = self.agent.decide(context)
         self._current_decision = decision
+        # 日志：非 wait 决策打印
+        dtype = decision.get("type", "?")
+        if dtype != "wait":
+            detail = decision.get("content", "") or decision.get("summary", "") or ""
+            print(f"[AgentLoop] {self.agent.AGENT_ID} 决策 → {dtype} {detail[:120]}")
 
     # ── Phase 4: ACT ──────────────────────────────────────────
 
@@ -150,6 +157,7 @@ class AgentLoop(threading.Thread):
                 self._result = d
                 self.mission_complete.set()
                 self.agent.update_my_status("idle")
+                print(f"[AgentLoop] {self.agent.AGENT_ID} 任务完成 → {d.get('summary', '')[:120]}")
 
     # ── 辅助 ──────────────────────────────────────────────────
 

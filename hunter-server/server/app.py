@@ -298,6 +298,8 @@ class SessionManager:
 
         # 7. 进度回调
         def on_agent_message(msg: InterAgentMessage):
+            ctx_info = f" task={msg.task_id}" if msg.task_id else ""
+            print(f"[CommBus] {msg.from_agent} → {msg.to_agent} | {msg.msg_type}{ctx_info} | {msg.content[:150]}")
             asyncio.run_coroutine_threadsafe(
                 store_and_send_progress(
                     session_id, "progress",
