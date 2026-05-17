@@ -49,6 +49,19 @@ class AttackToolMaster(AgentBase):
             self.on_progress(message)
         print(message)
 
+    def get_capabilities_summary(self) -> str:
+        """返回面向 Leader 的能力摘要（类别级别，非具体工具列表）"""
+        categories = getattr(self.config, 'tool_categories', None)
+        if not categories:
+            return "武器大师可执行各类 Kali 安全工具和自定义脚本。"
+
+        lines = ["武器大师可处理以下类型的任务："]
+        for cat_name, tools in categories.items():
+            lines.append(f"- {cat_name}（{len(tools)} 个工具）")
+        lines.append("")
+        lines.append("你不需要指定具体工具。用自然语言描述你想完成什么，武器大师会选择最佳工具。")
+        return "\n".join(lines)
+
     def _get_install_command(self, tool_name: str) -> str:
         """获取外部工具的安装命令"""
         # 外部工具安装命令映射表
@@ -172,6 +185,9 @@ class AttackToolMaster(AgentBase):
             return {"type": "wait"}
 
         msgs = self.drain_inbox()
+        if not msgs:
+            self.release_to_pool()
+            return {"type": "wait"}
         for msg in msgs:
             if msg.msg_type == "delegation":
                 # Check abort again before starting long operation
@@ -450,10 +466,15 @@ class AttackToolMaster(AgentBase):
                             "[系统警告] 你刚执行了和上轮完全相同的命令。命令结果已经在了，"
                             "请立即使用 task_done 汇报结果，不要再重复执行！"
                         )
-                    elif self._shell_count >= 1:
+                    elif self._shell_count == 1:
                         self.append_message("system",
                             "[系统提示] 命令已执行完毕。如果你已经拿到足够的信息来完成任务，"
                             '请使用 task_done 返回结果。不要为了"验证"或"确认"而重新执行同样的操作。'
+                        )
+                    elif self._shell_count >= 3:
+                        self.append_message("system",
+                            "[系统强制提示] 你已经执行了多条命令。如果已获得足够信息，"
+                            "必须立即使用 task_done 结束任务，不得继续执行更多命令。"
                         )
                     continue
 

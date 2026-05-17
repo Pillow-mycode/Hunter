@@ -66,6 +66,13 @@ WEAPON_MASTER_PROMPT_ZH = """
 4. 如果**未安装**，使用 install_tool 安装工具，安装成功后再执行
 5. 如果缺少必要参数，使用 need_message 询问用户
 
+## 效率规则
+
+1. **跳过 check_tools**：不要以 check_tools 开始任务。你已熟悉所有 Kali 工具，直接选工具执行命令。
+2. **最多 3 个 shell**：每个任务最多执行 3 条 shell 命令。超过此限制会被强制结束。
+3. **直接行动**：收到指令 → 理解需求 → 直接执行最合适的命令 → 汇报结果。
+4. **不需要验证**：命令执行一次就够了，不要重复执行来"验证"。
+
 ## 重要规则
 
 1. 优先使用本地武器库（tools/目录下的工具），而不是系统命令
@@ -604,24 +611,39 @@ class AttackToolMasterConfig:
         self.tools_path = tools_path
         self.system_prompt = prompt
         self.tools = []
+        self.tool_categories: dict[str, list[str]] = {}  # 分类名 → 工具名列表
 
         if tools_path.endswith('.txt'):
             try:
                 with open(tools_path, 'r', encoding='utf-8') as file:
-                    content = file.read().strip()
-                    if not content:
-                        print("警告: 工具文件为空")
-                        return
+                    lines = [l.strip() for l in file if l.strip()]
 
-                    tools = content.split(';')
-                    for tool in tools:
-                        if not tool.strip():
+                import re
+                current_category = "其他"
+
+                for line in lines:
+                    # 跳过纯注释行（非章节标题的注释）
+                    if line.startswith('#') and not re.match(r'^#\s*=+\s*(.+?)\s*=+$', line):
+                        continue
+
+                    # 检测章节标题（# ===== 分类名 =====）
+                    cat_match = re.match(r'^#\s*=+\s*(.+?)\s*=+$', line)
+                    if cat_match:
+                        current_category = cat_match.group(1).strip()
+                        if current_category not in self.tool_categories:
+                            self.tool_categories[current_category] = []
+                        continue
+
+                    # 按 ; 分割（一行可能包含多个工具条目）
+                    entries = line.split(';')
+                    for entry in entries:
+                        entry = entry.strip()
+                        if not entry:
                             continue
 
-                        # 提取工具类型标记 [KALI] 或 [CUSTOM]
-                        tool_type = "KALI"  # 默认为 KALI 工具
-                        tool_content = tool.strip()
-
+                        # 提取工具类型标记
+                        tool_type = "KALI"
+                        tool_content = entry
                         if tool_content.startswith('[KALI]'):
                             tool_type = "KALI"
                             tool_content = tool_content[6:].strip()
@@ -633,19 +655,28 @@ class AttackToolMasterConfig:
                             tool_content = tool_content[10:].strip()
 
                         parts = tool_content.split(':')
+                        tool_name = parts[0].strip()
                         if len(parts) >= 2:
                             tool_dict = {
-                                "name": parts[0].strip(),
+                                "name": tool_name,
                                 "description": ':'.join(parts[1:]).strip(),
-                                "type": tool_type
+                                "type": tool_type,
+                                "category": current_category,
                             }
                             self.tools.append(tool_dict)
                         else:
                             self.tools.append({
                                 'name': tool_content,
                                 'description': '',
-                                'type': tool_type
+                                'type': tool_type,
+                                'category': current_category,
                             })
+
+                        # 归类
+                        if current_category not in self.tool_categories:
+                            self.tool_categories[current_category] = []
+                        if tool_name not in self.tool_categories[current_category]:
+                            self.tool_categories[current_category].append(tool_name)
 
             except FileNotFoundError:
                 print(f"错误: 工具文件不存在 - {tools_path}")

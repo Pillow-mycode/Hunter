@@ -25,6 +25,7 @@ class AgentPool:
         self._lock = threading.Lock()
         self._agent_factories: dict[str, callable] = {}
         self._on_new_instance: callable = None
+        self._loop_factory: callable = None  # (agent, iid) → AgentLoop
 
     def register_factory(self, agent_type: str, factory: callable):
         self._agent_factories[agent_type] = factory
@@ -32,6 +33,10 @@ class AgentPool:
     def set_new_instance_callback(self, callback: callable):
         """新实例创建时自动调用 callback(instance_id, agent)"""
         self._on_new_instance = callback
+
+    def set_loop_factory(self, factory: callable):
+        """设置 AgentLoop 工厂：acquire 创建新实例时自动调用 factory(agent, iid) → AgentLoop"""
+        self._loop_factory = factory
 
     def acquire(self, agent_type: str) -> tuple:
         """获取空闲实例。返回 (instance_id, agent) 或 (None, None)"""
@@ -60,6 +65,10 @@ class AgentPool:
                 self.comm_bus.register_agent(iid)
                 if self._on_new_instance:
                     self._on_new_instance(iid, agent)
+                if self._loop_factory:
+                    loop = self._loop_factory(agent, iid)
+                    self._loops[iid] = loop
+                    loop.start()
                 return iid, agent
 
         return None, None
@@ -68,8 +77,9 @@ class AgentPool:
         with self._lock:
             self._busy.discard(instance_id)
             agent_type = instance_id.rsplit("_", 1)[0]
-            self._idle[agent_type].append(instance_id)
-            self._idle_since[instance_id] = time.time()
+            if instance_id not in self._idle[agent_type]:
+                self._idle[agent_type].append(instance_id)
+                self._idle_since[instance_id] = time.time()
 
     def reap_idle(self) -> list[str]:
         """回收超时空闲实例，返回被清理的 iid 列表。"""

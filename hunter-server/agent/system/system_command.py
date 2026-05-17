@@ -22,7 +22,7 @@ hawkeye = Hawkeye(HawkeyeConfig())
 # 监控线程（替换旧 TimeCountThread）
 # =========================
 class MonitorThread(threading.Thread):
-    """PTY 输出监控线程，每秒检查停滞，每 10 秒检查时长异常。"""
+    """PTY 输出监控线程，使用指数退避减少 LLM 调用频率。"""
 
     def __init__(self, monitor: PTYOutputMonitor, controller=None, result_getter=None):
         super().__init__()
@@ -32,41 +32,58 @@ class MonitorThread(threading.Thread):
         self.flag = False
         self.is_timeout = False
         self._check_count = 0
-        self._max_idle_checks = 120  # 最多等 120 次 idle 检查（~2 分钟停滞）
+        self._max_idle_checks = 120
+        self._backoff = 2           # 当前退避间隔（秒）
+        self._min_backoff = 2       # 最小间隔
+        self._max_backoff = 60      # 最大间隔
+        self._last_output_len = 0   # 上次输出长度，用于检测变化
 
     def run(self):
         self.flag = True
         consecutive_idle = 0
+        first = True
         while self.flag:
-            time.sleep(1)
+            if not first:
+                time.sleep(self._backoff)
+            first = False
             self._check_count += 1
 
-            # 每 10 秒检查时长异常
-            if self._check_count % 10 == 0:
-                anomaly = self.monitor.check_duration_anomaly()
-                if anomaly:
-                    level = anomaly.get('level', 'warning')
-                    print(f"[鹰眼 Layer4] 命令时长异常 ({level}): "
-                          f"'{anomaly['command']}' 已运行 {anomaly['elapsed_seconds']:.0f}s, "
-                          f"预期 ≤{anomaly['expected_max']}s")
-                    if level == 'critical':
-                        self.is_timeout = True
-                        self.flag = False
-                        break
+            # 检测输出是否变化，有变化则重置退避
+            current_output_len = len(self.result_getter() or "") if self.result_getter else 0
+            if current_output_len != self._last_output_len:
+                self._last_output_len = current_output_len
+                self._backoff = self._min_backoff  # 输出在变，快速检查
+                consecutive_idle = 0
+            else:
+                # 输出无变化，指数退避
+                self._backoff = min(self._backoff * 2, self._max_backoff)
+
+            # Layer 4: 时长异常检查（始终检查，关键命令不能错过）
+            anomaly = self.monitor.check_duration_anomaly()
+            if anomaly:
+                level = anomaly.get('level', 'warning')
+                print(f"[鹰眼 Layer4] 命令时长异常 ({level}): "
+                      f"'{anomaly['command']}' 已运行 {anomaly['elapsed_seconds']:.0f}s, "
+                      f"预期 ≤{anomaly['expected_max']}s")
+                if level == 'critical':
+                    self.is_timeout = True
+                    self.flag = False
+                    break
 
             # Layer 2/3: 停滞检测
             idle_result = self.monitor.check_idle()
             if idle_result.detected:
                 if idle_result.method == 'heuristic':
                     consecutive_idle += 1
-                    if consecutive_idle >= 3:  # 连续 3 秒判定为交互
+                    if consecutive_idle >= 3:
                         print(f"[鹰眼 Layer2] 启发式检测到交互提示: {idle_result.matched_text}")
                         _set_interaction()
                         self.flag = False
                         break
                 elif idle_result.method == 'llm_needed':
                     consecutive_idle += 1
-                    if consecutive_idle >= 5:
+                    llm_trigger = max(3, self._backoff)  # 随退避增长，减少 LLM 调用
+                    if consecutive_idle >= llm_trigger:
                         result = self.result_getter() if self.result_getter else ""
                         needs = check_history(result)
                         if needs:

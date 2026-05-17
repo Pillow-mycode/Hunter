@@ -6,12 +6,18 @@ from agent.team.protocol import InterAgentMessage
 class AgentBase:
     AGENT_ID: str = ""
 
-    def __init__(self, comm_bus, blackboard, agent_id: str = ""):
+    def __init__(self, comm_bus, blackboard, agent_id: str = "", agent_pool=None):
         self.comm_bus = comm_bus
         self.blackboard = blackboard
         if agent_id:
             self.AGENT_ID = agent_id  # 实例级覆盖类属性，支持多实例
+        self._agent_pool = agent_pool
         self._abort_event = None  # Set by AgentLoop to allow checking stop flag
+
+    def release_to_pool(self):
+        """释放自身到 AgentPool 空闲池"""
+        if self._agent_pool:
+            self._agent_pool.release(self.AGENT_ID)
 
     def send_msg(self, to: str, msg_type: str, content: str, **ctx) -> InterAgentMessage:
         msg = InterAgentMessage(

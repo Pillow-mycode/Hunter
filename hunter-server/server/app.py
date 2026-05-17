@@ -236,11 +236,19 @@ class SessionManager:
             loops = {}
             for aid, agent in agents.items():
                 loops[aid] = AgentLoop(agent, comm_bus, blackboard)
-            # 补充 pool 中的 loops
+
+            # 设置 loop_factory，确保后续 acquire 创建新实例时自动创建 AgentLoop
             if pool:
                 for iid, loop in loops.items():
                     if iid != "leader":
                         pool.register_loop(iid, loop)
+
+                def make_loop(agent, iid):
+                    loop = AgentLoop(agent, comm_bus, blackboard)
+                    loops[iid] = loop
+                    return loop
+
+                pool.set_loop_factory(make_loop)
 
             self.agent_loops[session_id] = loops
             print(f"[Team] 会话 {session_id} 复用团队，已创建新 AgentLoop 线程")
@@ -253,33 +261,42 @@ class SessionManager:
         # 2. 注册 Leader
         comm_bus.register_agent("leader")
 
-        # 3. Leader 实例
+        # 3. AgentPool + 工厂注册（在 Leader 之前创建）
+        pool = AgentPool(comm_bus, blackboard)
+        pool.register_factory("tool_master",
+            lambda iid: AttackToolMaster(AttackToolMasterConfig(),
+                                         comm_bus=comm_bus, blackboard=blackboard, agent_id=iid, agent_pool=pool))
+        pool.register_factory("data_analyst",
+            lambda iid: DataAnalyst(DataAnalystConfig(),
+                                    comm_bus=comm_bus, blackboard=blackboard, agent_id=iid, agent_pool=pool))
+        pool.register_factory("hawkeye",
+            lambda iid: Hawkeye(HawkeyeConfig(),
+                                comm_bus=comm_bus, blackboard=blackboard, agent_id=iid, agent_pool=pool))
+
+        # 4. Leader 实例
         leader_config = AttackLeaderConfig()
-        leader = AttackLeader(leader_config, comm_bus=comm_bus, blackboard=blackboard)
+        leader = AttackLeader(leader_config, comm_bus=comm_bus, blackboard=blackboard, agent_pool=pool)
         history = self.db.get_conversation_history(session_id)
         if history:
             leader.context["conversation_history"] = history
 
-        # 4. AgentPool + 工厂注册
-        pool = AgentPool(comm_bus, blackboard)
-        pool.register_factory("tool_master",
-            lambda iid: AttackToolMaster(AttackToolMasterConfig(),
-                                         comm_bus=comm_bus, blackboard=blackboard, agent_id=iid))
-        pool.register_factory("data_analyst",
-            lambda iid: DataAnalyst(DataAnalystConfig(),
-                                    comm_bus=comm_bus, blackboard=blackboard, agent_id=iid))
-        pool.register_factory("hawkeye",
-            lambda iid: Hawkeye(HawkeyeConfig(),
-                                comm_bus=comm_bus, blackboard=blackboard, agent_id=iid))
-        leader.agent_pool = pool
+        # 5. loop_factory：acquire 创建新实例时自动创建并启动 AgentLoop
+        loops = {}  # 提前声明，供 loop_factory 闭包引用
 
-        # 5. 预创建各类型一个实例
+        def make_loop(agent, iid):
+            loop = AgentLoop(agent, comm_bus, blackboard)
+            loops[iid] = loop
+            return loop
+
+        pool.set_loop_factory(make_loop)
+
+        # 6. 预创建各类型一个实例（acquire 会自动通过 loop_factory 创建 AgentLoop）
         for atype in ("tool_master", "data_analyst", "hawkeye"):
             iid, agent = pool.acquire(atype)
             if iid:
                 pool.release(iid)
 
-        # 6. 进度回调
+        # 7. 进度回调
         def on_agent_message(msg: InterAgentMessage):
             asyncio.run_coroutine_threadsafe(
                 store_and_send_progress(
@@ -291,7 +308,7 @@ class SessionManager:
             )
         comm_bus.on_send = on_agent_message
 
-        # 7. Leader 回调
+        # 8. Leader 回调
         leader.on_progress = None
         leader.on_need_input = on_need_input
         leader.on_need_confirm = on_need_confirm
@@ -315,15 +332,8 @@ class SessionManager:
             return on_stream_chunk
         leader.stream_callback = make_stream_callback("leader")
 
-        # 8. 为所有实例创建 AgentLoop
-        loops = {"leader": AgentLoop(leader, comm_bus, blackboard)}
-        for iid, agent in pool.list_instances().items():
-            if iid == "leader":
-                continue
-            if agent:
-                loop = AgentLoop(agent, comm_bus, blackboard)
-                loops[iid] = loop
-                pool.register_loop(iid, loop)
+        # 9. Leader AgentLoop
+        loops["leader"] = AgentLoop(leader, comm_bus, blackboard)
 
         # 9. 存储
         self.comm_buses[session_id] = comm_bus

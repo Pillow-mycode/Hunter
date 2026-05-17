@@ -44,7 +44,15 @@ class AgentLoop(threading.Thread):
             self._phase_process()
             self._phase_think()
             self._phase_act()
-            time.sleep(self.poll_interval)
+            # 有待处理任务或收件箱有消息时不睡眠，立即进入下一轮
+            has_pending = any(
+                t.status == "PENDING"
+                for t in self.outstanding_tasks.values()
+            ) if self.outstanding_tasks else False
+            inbox = self.comm_bus.inboxes.get(self.agent.AGENT_ID)
+            has_inbox_msg = not inbox.empty() if inbox else False
+            if not has_pending and not has_inbox_msg:
+                time.sleep(self.poll_interval)
 
     # ── Phase 1: POLL ─────────────────────────────────────────
 
@@ -144,9 +152,10 @@ class AgentLoop(threading.Thread):
         for task_id, task in self.outstanding_tasks.items():
             elapsed = (datetime.now() - task.sent_at).total_seconds()
             icon = {"PENDING": "⏳", "COMPLETED": "✅", "TIMEOUT": "⏰"}.get(task.status, "?")
+            status_text = {"PENDING": "运行中", "COMPLETED": "已完成", "TIMEOUT": "已超时"}.get(task.status, task.status)
             lines.append(
-                f"{icon} {task_id[:8]}: →{task.target_agent} "
-                f"({elapsed:.0f}s) {task.instruction[:60]}"
+                f"- [{status_text}] {task_id[:8]}: →{task.target_agent} "
+                f"({elapsed:.0f}s) {task.instruction[:100]}"
             )
         return "\n".join(lines)
 
