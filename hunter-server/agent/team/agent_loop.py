@@ -89,15 +89,20 @@ class AgentLoop(threading.Thread):
 
     def _phase_think(self):
         prev = getattr(self, "_current_decision", {})
-        # 上次决策是 wait 且有有效的未完成任务 → 阻塞等新消息到达
+        # 上次决策是 wait 且存在未完成任务 → 检查池容量决定是否阻塞
         has_pending = any(
             t.status not in ("COMPLETED", "TIMEOUT")
             for t in self.outstanding_tasks.values()
         ) if self.outstanding_tasks else False
         if prev.get("type") == "wait" and has_pending:
-            print(f"[AgentLoop] {self.agent.AGENT_ID} 阻塞等待结果... (pending={sum(1 for t in self.outstanding_tasks.values() if t.status not in ('COMPLETED','TIMEOUT'))})")
-            self._wait_for_inbox_message(timeout=30.0)
-            print(f"[AgentLoop] {self.agent.AGENT_ID} 唤醒，继续决策")
+            pool = getattr(self.agent, 'agent_pool', None)
+            # 只有池满（无法并行派发更多任务）时才阻塞
+            can_parallel = pool and pool.has_capacity("tool_master") if pool else False
+            if not can_parallel:
+                print(f"[AgentLoop] {self.agent.AGENT_ID} 池满，阻塞等待结果... (pending={sum(1 for t in self.outstanding_tasks.values() if t.status not in ('COMPLETED','TIMEOUT'))})")
+                self._wait_for_inbox_message(timeout=30.0)
+                print(f"[AgentLoop] {self.agent.AGENT_ID} 唤醒，继续决策")
+            # 池有空位 → 不阻塞，让 Leader 决策是否可以并行做事
 
         context = {
             "mission": self.blackboard.read("mission"),
@@ -134,8 +139,9 @@ class AgentLoop(threading.Thread):
                     msg_type = "analysis_request"
                     ctx_json = None
                 elif target.startswith("hawkeye"):
-                    msg_type = "delegation"
-                    ctx_json = {"output": d["content"]}
+                    # Hawkeye 不接受任务委托，仅通过 PTY 监控链路工作
+                    print(f"[AgentLoop] 警告: 不支持委托给 Hawkeye，已忽略")
+                    continue
                 else:
                     msg_type = "delegation"
                     ctx_json = None

@@ -8,7 +8,7 @@ from agent.pojo.attack_config import AttackToolMasterConfig
 from agent.smart_brain.hardcoded_rules import HardcodedRules, RuleResult
 from agent.team.agent_base import AgentBase
 from agent.system.system_command import write_to_logs, sys_shell
-from agent.system.output_handler import process_long_output
+
 from agent.smart_brain.data_analyst import get_data_analyst
 from agent.team.protocol import MSG_TASK_RESULT, MSG_ANALYSIS_RESULT, MSG_INPUT_ALERT
 from llm.token_counter import get_token_counter
@@ -98,6 +98,8 @@ class AttackLeader(AgentBase):
         self._last_dispatched_instruction = ""
         self._last_local_result = ""  # 上一轮本地命令执行结果
         self._last_confirmed_step = -1  # 防止 check_loop_limit 重复确认
+        self._max_steps = 50
+        self._confirm_interval = 10
 
         # 回调
         self._on_progress: Optional[Callable] = None
@@ -147,7 +149,7 @@ class AttackLeader(AgentBase):
         current_tokens = token_counter.count_messages(messages)
 
         if current_tokens > max_tokens:
-            self._notify_progress(self._msg("msg_truncating"))
+            print(self._msg("msg_truncating"))
             system_messages = [msg for msg in messages if msg["role"] == "system"]
             other_messages = [msg for msg in messages if msg["role"] != "system"]
             truncated_messages = []
@@ -163,7 +165,7 @@ class AttackLeader(AgentBase):
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                self._notify_progress(self._msg("msg_calling_model", model=self.config.model, attempt=attempt + 1, max_retries=max_retries))
+                print(self._msg("msg_calling_model", model=self.config.model, attempt=attempt + 1, max_retries=max_retries))
                 if self._stream_callback:
                     response_text = ""
                     for chunk in self.config.provider.chat_stream(messages):
@@ -171,7 +173,7 @@ class AttackLeader(AgentBase):
                         response_text += chunk
                 else:
                     response_text = self.config.provider.chat(messages)
-                self._notify_progress(self._msg("msg_model_complete"))
+                print(self._msg("msg_model_complete"))
                 return response_text
             except Exception as e:
                 error_msg = str(e)
@@ -180,10 +182,10 @@ class AttackLeader(AgentBase):
                 if attempt < max_retries - 1:
                     import time
                     wait_time = (attempt + 1) * 2
-                    self._notify_progress(self._msg("msg_api_retry", wait_time=wait_time))
+                    print(self._msg("msg_api_retry", wait_time=wait_time))
                     time.sleep(wait_time)
                 else:
-                    self._notify_progress(self._msg("msg_api_failed", error=error_msg))
+                    print(self._msg("msg_api_failed", error=error_msg))
                     raise Exception(f"LLM API 调用失败（已重试{max_retries}次）: {error_msg}")
 
     def _notify_progress(self, message: str):
@@ -196,53 +198,117 @@ class AttackLeader(AgentBase):
             self.on_progress(self._msg("msg_reply", message=message))
         print(self._msg("msg_reply", message=message))
 
+    def _notify_narration(self, message: str):
+        """发送用户友好叙述到客户端"""
+        if self.on_progress:
+            self.on_progress(f"[叙述]{message}")
+        print(f"[叙述]{message}")
+
+    # Leader 可直接执行的命令白名单
+    LEADER_CMD_WHITELIST = {
+        'curl', 'wget', 'grep', 'cat', 'echo', 'ping', 'traceroute',
+        'whois', 'head', 'tail', 'file', 'ls', 'wc', 'sort', 'uniq',
+        'cut', 'awk', 'sed', 'tr',
+    }
+
+    def _check_command_whitelist(self, command: str) -> tuple[bool, str]:
+        """检查命令是否在白名单内。返回 (通过, 拒绝原因)。
+
+        特殊情况：nc 仅允许 -z 端口探测模式。
+        """
+        cmd_line = command.strip()
+        if not cmd_line:
+            return False, "空命令"
+
+        # 提取第一个词（基础命令名）
+        first_word = cmd_line.split()[0]
+        # 处理路径前缀，如 /usr/bin/curl → curl
+        if '/' in first_word:
+            first_word = first_word.rsplit('/', 1)[-1]
+
+        if first_word == 'nc':
+            if '-z' not in cmd_line.split():
+                return False, f"nc 仅允许 -z 端口探测模式，不允许: {cmd_line[:80]}"
+            return True, ""
+
+        if first_word in self.LEADER_CMD_WHITELIST:
+            return True, ""
+
+        return False, f"禁止直接执行 '{first_word}'，应委托给武器大师。允许的命令: {', '.join(sorted(self.LEADER_CMD_WHITELIST))}"
+
     def execute_local(self, command: str):
         """直接执行 shell 命令（AgentLoop 通过 execute_local 动作调用）
 
         输出 > 2K 时同步调用 DataAnalyst.extract() 提取结构化情报，
         Leader 只消费提取结果，不被 raw output 淹没上下文。
         """
-        self._notify_progress(f"[CMD_START]{command}")
-        result = sys_shell(command)
-        if not isinstance(result, str):
-            result = str(result)
-
         task_id = self.context.get("task_id", "leader")
 
-        if len(result) > 2000:
-            # 委托 DataAnalyst 同步提取攻击面
-            self._notify_progress(f"[数据分析员] 提取分析中 ({len(result)} 字符)...")
-            content_type = self._classify_output(command, result)
-            analyst = get_data_analyst()
-            summary = analyst.extract(result, content_type, command=command, task_id=task_id)
-            self._last_local_result = summary[:3000]
-            self._notify_progress(f"[CMD_OUTPUT]{summary[:3000]}")
-        else:
-            # 短输出直接消费
-            result_clean, file_path = process_long_output(
-                result, command, task_id, threshold=30000
-            )
-            self._last_local_result = result_clean[:3000]
-            self._notify_progress(f"[CMD_OUTPUT]{result_clean[:3000]}")
-            if file_path:
-                self._notify_progress(f"[文件] 完整结果已保存: {file_path}")
+        # 白名单检查
+        allowed, reject_reason = self._check_command_whitelist(command)
+        if not allowed:
+            write_to_logs(f"Leader.execute_local 白名单拦截: {reject_reason}")
+            self._last_local_result = f"[命令被拦截] {reject_reason}\n命令: {command[:200]}"
+            self._notify_progress(f"[CMD_START]{command}")
+            self._notify_progress(f"[CMD_OUTPUT]命令被拦截: {reject_reason}")
+            self._notify_progress("[CMD_END]")
+            self.context["action_count"] = self.context.get("action_count", 0) + 1
+            self.context.setdefault("history", []).append({
+                "step": self.context["action_count"],
+                "instruction": f"[被拦截] {command[:150]}",
+                "status": "blocked",
+                "summary": reject_reason,
+                "content": reject_reason,
+            })
+            return
 
-        self._notify_progress("[CMD_END]")
-        self.context["action_count"] = self.context.get("action_count", 0) + 1
-        self.context.setdefault("history", []).append({
-            "step": self.context["action_count"],
-            "instruction": f"[直接执行] {command[:150]}",
-            "status": "success",
-            "summary": self._last_local_result[:200],
-            "content": self._last_local_result[:500],
-        })
+        self._notify_progress(f"[CMD_START]{command}")
+        try:
+            result = sys_shell(command)
+            if not isinstance(result, str):
+                result = str(result)
+
+            if len(result) > 2000:
+                # 委托 DataAnalyst 同步提取攻击面
+                self._notify_progress(f"[数据分析员] 提取分析中 ({len(result)} 字符)...")
+                content_type = self._classify_output(command, result)
+                analyst = get_data_analyst()
+                summary = analyst.extract(result, content_type, command=command, task_id=task_id)
+                self._last_local_result = summary[:3000]
+                self._notify_progress(f"[CMD_OUTPUT]{summary[:3000]}")
+            else:
+                # 短输出直接消费，仍保存到文件以保持审计一致性
+                from agent.system.output_handler import clean_ansi_codes, save_output_to_file
+                result_clean = clean_ansi_codes(result)
+                file_path = save_output_to_file(result, command, task_id)
+                self._last_local_result = result_clean[:3000]
+                self._notify_progress(f"[CMD_OUTPUT]{result_clean[:3000]}")
+                if file_path:
+                    self._notify_progress(f"[文件] 完整结果已保存: {file_path}")
+
+            self._notify_progress("[CMD_END]")
+            self.context["action_count"] = self.context.get("action_count", 0) + 1
+            self.context.setdefault("history", []).append({
+                "step": self.context["action_count"],
+                "instruction": f"[直接执行] {command[:150]}",
+                "status": "success",
+                "summary": self._last_local_result[:200],
+                "content": self._last_local_result[:500],
+            })
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            write_to_logs(f"Leader.execute_local 异常: {e}\n{tb}")
+            self._last_local_result = f"[命令执行失败] {command[:200]}\n错误: {str(e)}"
+            self._notify_progress(f"[CMD_OUTPUT]执行失败: {str(e)}")
+            self._notify_progress("[CMD_END]")
 
     def _classify_output(self, command: str, output: str) -> str:
         """判断命令输出类型，决定 DataAnalyst 提取策略"""
         head = output[:1000].lower()
         if '<html' in head or '<!doctype html' in head or 'text/html' in output[:500].lower():
             return 'http_html'
-        if command.endswith('.js') or 'cat ' in command and '.js' in command:
+        if '.js' in command and (command.endswith('.js') or 'cat ' in command):
             return 'javascript'
         if output.strip().startswith('{') or output.strip().startswith('['):
             return 'http_json'
@@ -466,30 +532,37 @@ class AttackLeader(AgentBase):
 ## 能力
 {available_tools}
 
+## 并行策略（重要）
+- 武器大师执行长时间任务时，你**不必等待**，可以同时做其他事
+- 你通过 execute_command 自己执行**快速探查**（curl 看首页、grep 搜关键词、wget 下载小文件）。这些命令应在 10 秒内完成
+- 你也可以 execute_task 委托**另一个武器大师实例**并行执行新任务（如 nikto 扫描时同时跑 dirb 目录爆破）
+- **已委托武器大师的任务，你不要自己再用 execute_command 执行！**（例如：已委托 gobuster → 不要自己再跑 gobuster）
+- 渗透测试是多线并行的，不是串行等待。只有**确实无事可做**时才 wait
+
 ---
 返回 JSON:
 
 {{
     "type": "complete",
-    "reason": "对用户说的话（汇报结果）"
+    "reason": "对用户说的自然口语，像和朋友聊天一样汇报结果（如：'扫描完成，发现3个开放端口：22、80、443，nginx 1.18运行在80端口'）"
 }}
 
 {{
     "type": "execute_command",
-    "command": "要直接执行的 shell 命令（curl/wget/grep/cat 等通用命令）",
-    "reason": "为什么要自己执行"
+    "command": "直接执行的 shell 命令。仅限白名单：curl/wget/grep/cat/echo/ping/traceroute/whois/head/tail/file/ls/wc/sort/uniq/cut/awk/sed/tr，nc 仅限 -z 端口探测。其他命令必须委托武器大师",
+    "reason": "对用户说的自然语言，解释这一步要做什么（如：'nikto 在扫，我趁机用 curl 看看首页有什么线索'）"
 }}
 
 {{
     "type": "execute_task",
     "target": "tool_master",
-    "instruction": "告诉武器大师要做什么（nmap/sqlmap/hydra 等专业安全工具）",
-    "reason": "为什么要委托武器大师"
+    "instruction": "告诉武器大师要做什么。**所有专业工具必须委托**：nmap、gobuster、nikto、dirb、ffuf、wfuzz、sqlmap、hydra、hashcat、john 等",
+    "reason": "对用户说的自然语言，解释为什么并行（如：'nikto 还在跑，让另一个武器大师同时做 gobuster 目录爆破'）"
 }}
 
 {{
     "type": "wait",
-    "reason": "为什么等待（例如：端口扫描进行中，等结果出来再决定下一步）"
+    "reason": "仅在完全无事可做时用（所有武器大师实例忙、没有新的探查方向），告知用户当前状态"
 }}
 """}
         ]
@@ -543,7 +616,11 @@ class AttackLeader(AgentBase):
             self.init_context(self.context["user_request"])
 
         # 4. 硬编码规则检查（终止/确认）
-        rule_result = self.rules.check_loop_limit(self.context)
+        rule_result = self.rules.check_loop_limit(
+            self.context,
+            max_steps=self._max_steps,
+            confirm_interval=self._confirm_interval
+        )
         if rule_result.should_abort:
             return {"type": "complete", "summary": rule_result.reason}
 
@@ -585,6 +662,11 @@ class AttackLeader(AgentBase):
             wakeup_text=wakeup_text,
         )
 
+        # 8.5 向用户叙述决策意图
+        reason = decision.get("reason", "")
+        if reason:
+            self._notify_narration(reason)
+
         # 9. 映射到 AgentLoop 格式
         return self._map_decision_to_action(decision)
 
@@ -605,6 +687,11 @@ class AttackLeader(AgentBase):
         elif dtype == "execute_task":
             target_type = decision.get("target", "tool_master")
             instruction = decision.get("instruction", "")
+
+            # Hawkeye 不接受任务委托，仅通过 PTY 监控链路工作
+            if target_type == "hawkeye":
+                write_to_logs("Leader 尝试委托 Hawkeye（不支持），已忽略")
+                return {"type": "wait"}
 
             target = target_type
             if self.agent_pool:

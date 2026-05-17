@@ -73,6 +73,17 @@ class AgentPool:
 
         return None, None
 
+    def has_capacity(self, agent_type: str) -> bool:
+        """检查是否有空闲实例或可创建新实例的余量"""
+        with self._lock:
+            if self._idle.get(agent_type):
+                return True
+            current_count = sum(
+                1 for iid in self._instances
+                if iid.startswith(f"{agent_type}_")
+            )
+            return current_count < self.max_per_type.get(agent_type, 5)
+
     def release(self, instance_id: str):
         with self._lock:
             self._busy.discard(instance_id)

@@ -188,11 +188,19 @@ class SessionManager:
 
         return self.leader_instances[session_id]
 
-    def setup_team(self, session_id: str, main_loop, on_need_input, on_need_confirm):
+    def setup_team(self, session_id: str, main_loop, on_need_input, on_need_confirm,
+                   max_steps: int = 50, confirm_interval: int = 10):
         """创建 Agent 团队：CommBus + Blackboard + AgentPool + AgentLoops。
 
         返回 (leader, loops_dict)。会话复用时创建新的 AgentLoop 线程。
         """
+        def on_agent_progress(message: str):
+            print(message)
+            asyncio.run_coroutine_threadsafe(
+                store_and_send_progress(session_id, "progress", message, message),
+                main_loop
+            )
+
         if session_id in self.comm_buses:
             # 会话复用路径
             leader = self.leader_instances.get(session_id)
@@ -210,16 +218,11 @@ class SessionManager:
             for aid, old_loop in old_loops.items():
                 agents[aid] = old_loop.agent
 
-            def on_agent_progress(message: str):
-                print(message)
-                asyncio.run_coroutine_threadsafe(
-                    store_and_send_progress(session_id, "progress", message, message),
-                    main_loop
-                )
-
             leader.on_progress = on_agent_progress
             leader.on_need_input = on_need_input
             leader.on_need_confirm = on_need_confirm
+            leader._max_steps = max_steps
+            leader._confirm_interval = confirm_interval
             for aid, agent in agents.items():
                 if hasattr(agent, 'on_progress'):
                     agent.on_progress = on_agent_progress
@@ -288,6 +291,8 @@ class SessionManager:
         # 4. Leader 实例
         leader_config = AttackLeaderConfig()
         leader = AttackLeader(leader_config, comm_bus=comm_bus, blackboard=blackboard, agent_pool=pool)
+        leader._max_steps = max_steps
+        leader._confirm_interval = confirm_interval
         history = self.db.get_conversation_history(session_id)
         if history:
             leader.context["conversation_history"] = history
@@ -323,13 +328,6 @@ class SessionManager:
         comm_bus.on_send = on_agent_message
 
         # 8. Leader 回调 + Agent 进度回调
-        def on_agent_progress(message: str):
-            print(message)
-            asyncio.run_coroutine_threadsafe(
-                store_and_send_progress(session_id, "progress", message, message),
-                main_loop
-            )
-
         leader.on_progress = on_agent_progress
         leader.on_need_input = on_need_input
         leader.on_need_confirm = on_need_confirm
@@ -743,8 +741,16 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     # 存储用户消息到数据库
                     session_manager.add_message(session_id, "user", user_message)
 
+                    # 提取步数配置（客户端可配）
+                    max_steps = data.get("data", {}).get("max_steps", 50)
+                    confirm_interval = data.get("data", {}).get("confirm_interval", 10)
+
                     # 启动任务执行
-                    asyncio.create_task(run_session_task(session_id, user_message))
+                    asyncio.create_task(run_session_task(
+                        session_id, user_message,
+                        max_steps=max_steps,
+                        confirm_interval=confirm_interval
+                    ))
 
             elif msg_type == "input":
                 # 用户输入（响应 need_input）
@@ -768,7 +774,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         session_manager.websockets.pop(session_id, None)
 
 
-async def run_session_task(session_id: str, command: str):
+async def run_session_task(session_id: str, command: str, max_steps: int = 50, confirm_interval: int = 10):
     """执行会话中的任务 — AgentLoop 异步协作模式"""
     session = session_manager.get_session(session_id)
     if not session:
@@ -813,7 +819,8 @@ async def run_session_task(session_id: str, command: str):
 
         # 1. 创建团队（CommBus + Blackboard + 4 agents + 4 AgentLoops）
         leader, loops = session_manager.setup_team(
-            session_id, main_loop, on_need_input, on_need_confirm
+            session_id, main_loop, on_need_input, on_need_confirm,
+            max_steps=max_steps, confirm_interval=confirm_interval
         )
         blackboard = session_manager.blackboards[session_id]
 
