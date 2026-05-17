@@ -181,23 +181,23 @@ class AttackToolMaster(AgentBase):
 
     def decide(self, context: dict) -> dict:
         # Check for abort signal before processing
-        if self._abort_event.is_set():
+        if self._is_aborted():
             return {"type": "wait"}
 
         msgs = self.drain_inbox()
         if not msgs:
-            self.release_to_pool()
             return {"type": "wait"}
         for msg in msgs:
             if msg.msg_type == "delegation":
                 # Check abort again before starting long operation
-                if self._abort_event.is_set():
+                if self._is_aborted():
                     self.send_msg(
                         to=msg.from_agent,
                         msg_type=MSG_TASK_RESULT,
                         content="任务已取消",
                         reply_to=msg.msg_id,
                     )
+                    self.release_to_pool()
                     break
 
                 task = {
@@ -210,13 +210,14 @@ class AttackToolMaster(AgentBase):
                 try:
                     result = self.run(task)
                     # After long run, check if we were cancelled
-                    if self._abort_event.is_set():
+                    if self._is_aborted():
                         self.send_msg(
                             to=msg.from_agent,
                             msg_type=MSG_TASK_RESULT,
                             content="任务执行中已被取消",
                             reply_to=msg.msg_id,
                         )
+                        self.release_to_pool()
                         break
                     self.send_msg(
                         to=msg.from_agent,
@@ -225,7 +226,6 @@ class AttackToolMaster(AgentBase):
                         reply_to=msg.msg_id,
                         context_json=result,
                     )
-                    self.update_my_status("idle")
                 except Exception as e:
                     self.send_msg(
                         to=msg.from_agent,
@@ -233,6 +233,8 @@ class AttackToolMaster(AgentBase):
                         content=f"执行失败: {e}",
                         reply_to=msg.msg_id,
                     )
+                self.update_my_status("idle")
+                self.release_to_pool()
         return {"type": "wait"}
 
     def run(self, task: dict) -> dict:

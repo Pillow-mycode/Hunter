@@ -14,7 +14,17 @@ class AgentBase:
         if agent_id:
             self.AGENT_ID = agent_id  # 实例级覆盖类属性，支持多实例
         self._agent_pool = agent_pool
-        self._abort_event = threading.Event()  # Replaced by AgentLoop, but always a valid Event
+        self._abort_event = threading.Event()  # Replaced by AgentLoop, but always starts as Event
+
+    def _is_aborted(self) -> bool:
+        """安全检查 abort 状态，防御非 Event 类型的 _abort_event"""
+        ev = self._abort_event
+        if hasattr(ev, 'is_set'):
+            return ev.is_set()
+        import traceback
+        print(f"[ERROR] _abort_event type={type(ev)}, value={ev}")
+        traceback.print_stack()
+        return False
 
     def release_to_pool(self):
         """释放自身到 AgentPool 空闲池"""
