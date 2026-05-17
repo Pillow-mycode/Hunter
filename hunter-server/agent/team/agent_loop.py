@@ -128,11 +128,23 @@ class AgentLoop(threading.Thread):
             dtype = d.get("type", "")
 
             if dtype == "delegate":
+                target = d["target"]
+                # Map to correct message type based on target agent
+                if target.startswith("data_analyst"):
+                    msg_type = "analysis_request"
+                    ctx_json = None
+                elif target.startswith("hawkeye"):
+                    msg_type = "delegation"
+                    ctx_json = {"output": d["content"]}
+                else:
+                    msg_type = "delegation"
+                    ctx_json = None
                 msg = self.agent.send_msg(
-                    to=d["target"],
-                    msg_type="delegation",
+                    to=target,
+                    msg_type=msg_type,
                     content=d["content"],
                     task_id=d.get("task_id"),
+                    context_json=ctx_json,
                 )
                 self.outstanding_tasks[msg.msg_id] = OutstandingTask(
                     task_id=msg.msg_id,
