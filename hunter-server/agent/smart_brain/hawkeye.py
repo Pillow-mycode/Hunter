@@ -57,7 +57,7 @@ class Hawkeye(AgentBase):
             return False
 
     def decide(self, context: dict) -> dict:
-        if self._abort_event and self._abort_event.is_set():
+        if self._abort_event.is_set():
             return {"type": "wait"}
 
         msgs = self.drain_inbox()
@@ -65,7 +65,7 @@ class Hawkeye(AgentBase):
             self.release_to_pool()
             return {"type": "wait"}
         for msg in msgs:
-            if self._abort_event and self._abort_event.is_set():
+            if self._abort_event.is_set():
                 break
             if msg.msg_type == "delegation" and msg.context_json:
                 self.update_my_status("busy")

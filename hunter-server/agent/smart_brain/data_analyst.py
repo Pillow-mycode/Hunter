@@ -145,7 +145,7 @@ class DataAnalyst(AgentBase):
 
 
     def decide(self, context: dict) -> dict:
-        if self._abort_event and self._abort_event.is_set():
+        if self._abort_event.is_set():
             return {"type": "wait"}
 
         msgs = self.drain_inbox()
@@ -153,13 +153,13 @@ class DataAnalyst(AgentBase):
             self.release_to_pool()
             return {"type": "wait"}
         for msg in msgs:
-            if self._abort_event and self._abort_event.is_set():
+            if self._abort_event.is_set():
                 break
             if msg.msg_type == "analysis_request":
                 self.update_my_status("busy")
                 output = msg.context_json.get("output", "") if msg.context_json else msg.content
                 result, file_path = self.analyze(output, task_id=msg.task_id or "default")
-                if self._abort_event and self._abort_event.is_set():
+                if self._abort_event.is_set():
                     break
                 self.send_msg(
                     to=msg.from_agent,

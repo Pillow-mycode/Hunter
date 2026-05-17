@@ -1,5 +1,7 @@
 """AgentBase — 所有 Agent 的统一基类，封装 CommBus + Blackboard 访问"""
 
+import threading
+
 from agent.team.protocol import InterAgentMessage
 
 
@@ -12,7 +14,7 @@ class AgentBase:
         if agent_id:
             self.AGENT_ID = agent_id  # 实例级覆盖类属性，支持多实例
         self._agent_pool = agent_pool
-        self._abort_event = None  # Set by AgentLoop to allow checking stop flag
+        self._abort_event = threading.Event()  # Replaced by AgentLoop, but always a valid Event
 
     def release_to_pool(self):
         """释放自身到 AgentPool 空闲池"""

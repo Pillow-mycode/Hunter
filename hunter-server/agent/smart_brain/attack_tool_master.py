@@ -181,7 +181,7 @@ class AttackToolMaster(AgentBase):
 
     def decide(self, context: dict) -> dict:
         # Check for abort signal before processing
-        if self._abort_event and self._abort_event.is_set():
+        if self._abort_event.is_set():
             return {"type": "wait"}
 
         msgs = self.drain_inbox()
@@ -191,7 +191,7 @@ class AttackToolMaster(AgentBase):
         for msg in msgs:
             if msg.msg_type == "delegation":
                 # Check abort again before starting long operation
-                if self._abort_event and self._abort_event.is_set():
+                if self._abort_event.is_set():
                     self.send_msg(
                         to=msg.from_agent,
                         msg_type=MSG_TASK_RESULT,
@@ -210,7 +210,7 @@ class AttackToolMaster(AgentBase):
                 try:
                     result = self.run(task)
                     # After long run, check if we were cancelled
-                    if self._abort_event and self._abort_event.is_set():
+                    if self._abort_event.is_set():
                         self.send_msg(
                             to=msg.from_agent,
                             msg_type=MSG_TASK_RESULT,
