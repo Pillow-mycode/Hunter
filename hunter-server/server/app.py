@@ -840,12 +840,15 @@ async def run_session_task(session_id: str, command: str):
         print(f"[任务取消] 会话 {session_id} 任务已被用户取消")
         session_manager.update_session_status(session_id, "idle")
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
         session_manager.update_session_status(session_id, "idle")
         session_manager.add_message(session_id, "error", str(e))
         await session_manager.send_message(session_id, "error", {
             "message": str(e)
         })
         print(f"[任务错误] 会话 {session_id}: {e}")
+        print(tb)
     finally:
         # 6. 停止所有 AgentLoop 线程
         for loop in loops.values():
