@@ -49,7 +49,10 @@ const i18n = {
         items: '项',
         fullResultSaved: '完整结果已保存',
         running: '正在运行',
-        runningCmd: '正在运行:',
+        runningCmd: '执行中...',
+        done: '完成',
+        expandOutput: '▼ 展开完整输出',
+        collapseOutput: '▲ 收起',
         timeout: '超时',
         needInput: '需要输入',
         language: '语言',
@@ -137,7 +140,10 @@ const i18n = {
         items: 'items',
         fullResultSaved: 'Full result saved',
         running: 'Running',
-        runningCmd: 'Running:',
+        runningCmd: 'Running...',
+        done: 'Done',
+        expandOutput: '▼ Show full output',
+        collapseOutput: '▲ Collapse',
         timeout: 'Timeout',
         needInput: 'Input required',
         language: 'Language',
@@ -1075,10 +1081,30 @@ function handleProgressMessage(message, timestamp) {
         return;
     }
 
-    // 检查是否是武器大师运行命令
+    // 命令块：开始执行
+    if (message.startsWith('[CMD_START]')) {
+        const cmd = message.substring(11).trim();
+        addCmdBlock(cmd, timestamp);
+        return;
+    }
+
+    // 命令块：输出内容
+    if (message.startsWith('[CMD_OUTPUT]')) {
+        const output = message.substring(12);
+        appendCmdOutput(output);
+        return;
+    }
+
+    // 命令块：执行结束
+    if (message === '[CMD_END]') {
+        finishCmdBlock();
+        return;
+    }
+
+    // 旧版武器大师命令（兼容）
     if (message.startsWith('[武器大师] 正在运行:')) {
         const cmd = message.substring('[武器大师] 正在运行:'.length).trim();
-        addCommandLine(cmd, timestamp);
+        addCmdBlock(cmd, timestamp);
         return;
     }
 
@@ -1145,6 +1171,83 @@ function addCommandLine(cmd, timestamp) {
     content.appendChild(line);
 
     scrollToBottom();
+}
+
+// ── 命令块渲染 (CMD_START / CMD_OUTPUT / CMD_END) ──────────────
+
+function addCmdBlock(cmd, timestamp) {
+    const container = elements.chatMessages();
+    const time = timestamp ? new Date(timestamp).toLocaleTimeString() : '';
+
+    const block = document.createElement('div');
+    block.className = 'message assistant cmd-block';
+    block.innerHTML = `
+        <div class="message-avatar"><img src="hunter.png" alt="Hunter" class="avatar-icon"></div>
+        <div class="message-content">
+            <div class="cmd-header">
+                <span class="cmd-indicator">▸</span>
+                <code class="cmd-text">${escapeHtml(cmd)}</code>
+                <span class="cmd-time">${time}</span>
+                <span class="cmd-status running">${t('runningCmd')}</span>
+            </div>
+            <pre class="cmd-output"><code></code></pre>
+        </div>
+    `;
+
+    // 插入到 typing indicator 之前
+    const typingMsg = container.querySelector('.message.typing');
+    if (typingMsg) {
+        container.insertBefore(block, typingMsg);
+    } else {
+        container.appendChild(block);
+    }
+
+    scrollToBottom();
+}
+
+function appendCmdOutput(text) {
+    const container = elements.chatMessages();
+    const block = container.querySelector('.cmd-block:last-of-type');
+    if (!block) return;
+
+    const code = block.querySelector('.cmd-output code');
+    if (!code) return;
+
+    code.textContent += text;
+    block.querySelector('.cmd-output').scrollTop = block.querySelector('.cmd-output').scrollHeight;
+    scrollToBottom();
+}
+
+function finishCmdBlock() {
+    const container = elements.chatMessages();
+    const block = container.querySelector('.cmd-block:last-of-type');
+    if (!block) return;
+
+    const statusEl = block.querySelector('.cmd-status');
+    if (statusEl) {
+        statusEl.textContent = '✓ ' + t('done');
+        statusEl.className = 'cmd-status done';
+    }
+
+    // 长输出折叠：超过 500 字符默认折叠
+    const output = block.querySelector('.cmd-output');
+    const code = output ? output.querySelector('code') : null;
+    if (code && code.textContent.length > 500) {
+        output.classList.add('collapsed');
+        const btn = document.createElement('button');
+        btn.className = 'cmd-expand-btn';
+        btn.textContent = t('expandOutput');
+        btn.onclick = function () {
+            if (output.classList.contains('collapsed')) {
+                output.classList.remove('collapsed');
+                btn.textContent = t('collapseOutput');
+            } else {
+                output.classList.add('collapsed');
+                btn.textContent = t('expandOutput');
+            }
+        };
+        block.querySelector('.message-content').appendChild(btn);
+    }
 }
 
 // 添加进度行

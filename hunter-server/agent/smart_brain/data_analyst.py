@@ -143,6 +143,67 @@ class DataAnalyst(AgentBase):
 
         return result, file_path
 
+    def extract(self, output: str, content_type: str,
+                command: str = "", task_id: str = "default") -> str:
+        """
+        同步提取攻击面信息（供 Leader 直接调用，不走 CommBus）
+
+        Args:
+            output: 原始命令输出
+            content_type: http_html / http_json / javascript / generic
+            command: 执行的命令
+            task_id: 任务 ID
+
+        Returns:
+            结构化 JSON 摘要字符串
+        """
+        cleaned = clean_ansi_codes(output)
+
+        # 保存完整输出
+        file_path = save_output_to_file(output, command, task_id)
+
+        # 超过 max_input_chars 则截断（头 8K + 尾 4K），不做分批
+        if len(cleaned) > self.config.max_input_chars:
+            head = cleaned[:8000]
+            tail = cleaned[-4000:]
+            analysis_text = (
+                f"[注意：原始输出 {len(cleaned)} 字符，已截断。完整内容: {file_path}]\n\n"
+                f"=== 前 8000 字符 ===\n{head}\n\n"
+                f"=== 末尾 4000 字符 ===\n{tail}"
+            )
+        else:
+            analysis_text = cleaned
+
+        user_prompt = (
+            f"内容类型: {content_type}\n"
+            f"执行命令: {command}\n"
+            f"完整输出文件: {file_path}\n\n"
+            f"请提取攻击面信息：\n\n{analysis_text}"
+        )
+
+        try:
+            print(f"[数据分析员] 正在提取 ({content_type}, {len(analysis_text)} 字符)...")
+            result = self.config.provider.chat([
+                {"role": "system", "content": self.config.extraction_prompt},
+                {"role": "user", "content": user_prompt}
+            ])
+            print(f"[数据分析员] 提取完成")
+            return self._format_extraction_result(result, file_path, len(cleaned))
+        except Exception as e:
+            print(f"[数据分析员] 提取失败: {e}")
+            return (
+                f"[提取失败] {str(e)}\n"
+                f"完整输出: {file_path}\n"
+                f"前 1000 字符: {cleaned[:1000]}"
+            )
+
+    def _format_extraction_result(self, raw: str, file_path: str, total_len: int) -> str:
+        """格式化提取结果，带上文件路径和原文大小"""
+        header = (
+            f"[数据分析员提取] 原文 {total_len} 字符, 完整输出: {file_path}\n"
+            f"---\n"
+        )
+        return header + raw.strip()
 
     def decide(self, context: dict) -> dict:
         if self._is_aborted():

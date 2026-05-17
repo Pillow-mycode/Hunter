@@ -396,7 +396,7 @@ class AttackToolMaster(AgentBase):
                     tool_name = response_content
                     print(f"武器大师: {response_description}")
                     write_to_logs(f"武器大师: 安装工具 - {tool_name}")
-                    self._notify_progress(f"[武器大师] 正在安装工具: {tool_name}")
+                    self._notify_progress(f"[CMD_START]安装: {tool_name}")
 
                     # 查找工具的安装命令
                     install_cmd = self._get_install_command(tool_name)
@@ -415,8 +415,10 @@ class AttackToolMaster(AgentBase):
                             threshold=30000
                         )
 
+                        self._notify_progress(f"[CMD_OUTPUT]{results[:2000]}")
                         if file_path:
                             self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
+                        self._notify_progress("[CMD_END]")
 
                         # 验证安装是否成功
                         verify_result = sys_shell(f"which {tool_name} 2>/dev/null || echo 'NOT_INSTALLED'")
@@ -435,7 +437,7 @@ class AttackToolMaster(AgentBase):
                     print(f"武器大师: {response_description}")
                     write_to_logs(f"武器大师: 执行命令 - {response_content}")
                     # 向客户端发送正在运行的命令
-                    self._notify_progress(f"[武器大师] 正在运行: {response_content}")
+                    self._notify_progress(f"[CMD_START]{response_content}")
                     results = sys_shell(response_content)
                     if not isinstance(results, str):
                         results = str(results)
@@ -450,9 +452,11 @@ class AttackToolMaster(AgentBase):
                         threshold=30000
                     )
 
+                    self._notify_progress(f"[CMD_OUTPUT]{results[:3000]}")
                     # 如果保存了文件，通知客户端
                     if file_path:
                         self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
+                    self._notify_progress("[CMD_END]")
 
                     # 将结果追加到对话
                     self.append_message("system", results)
@@ -720,7 +724,7 @@ class AttackToolMaster(AgentBase):
                     tool_name = response_content
                     print(f"武器大师: {response_description}")
                     write_to_logs(f"武器大师: 安装工具 - {tool_name}")
-                    self._notify_progress(f"[武器大师] 正在安装工具: {tool_name}")
+                    self._notify_progress(f"[CMD_START]安装: {tool_name}")
 
                     install_cmd = self._get_install_command(tool_name)
                     if install_cmd:
@@ -735,8 +739,10 @@ class AttackToolMaster(AgentBase):
                             threshold=30000
                         )
 
+                        self._notify_progress(f"[CMD_OUTPUT]{results[:2000]}")
                         if file_path:
                             self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
+                        self._notify_progress("[CMD_END]")
 
                         verify_result = sys_shell(f"which {tool_name} 2>/dev/null || echo 'NOT_INSTALLED'")
                         if "NOT_INSTALLED" not in str(verify_result) and str(verify_result).strip():
@@ -750,7 +756,7 @@ class AttackToolMaster(AgentBase):
                 elif response_type == "shell":
                     print(f"武器大师: {response_description}")
                     # 向客户端发送正在运行的命令
-                    self._notify_progress(f"[武器大师] 正在运行: {response_content}")
+                    self._notify_progress(f"[CMD_START]{response_content}")
                     results = sys_shell(response_content)
                     if not isinstance(results, str):
                         results = str(results)
@@ -761,8 +767,11 @@ class AttackToolMaster(AgentBase):
                         self.current_task_id or task_id,
                         threshold=30000
                     )
+
+                    self._notify_progress(f"[CMD_OUTPUT]{results[:3000]}")
                     if file_path:
                         self._notify_progress(f"[文件] 输出过长，完整结果已保存: {file_path}")
+                    self._notify_progress("[CMD_END]")
                     self.append_message("system", results)
 
                     self._shell_count += 1

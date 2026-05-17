@@ -7,7 +7,7 @@ from llm.factory import ProviderFactory
 负责分析超长命令输出，提取关键信息
 """
 
-# 中文系统提示词
+# 中文系统提示词（供 analyze() 使用，异步大数据分析场景）
 DATA_ANALYST_PROMPT_ZH = """
 ## 你的团队
 
@@ -45,6 +45,75 @@ DATA_ANALYST_PROMPT_ZH = """
 - 如果输出中没有有价值的发现，直接说「未发现有价值的信息」
 - 如果工具执行失败或报错，说明失败原因
 - 数字要准确，不要编造
+"""
+
+# 结构化提取提示词（供 extract() 使用，Leader 同步提取场景）
+EXTRACTION_PROMPT_ZH = """
+你是渗透测试团队的情报分析员。你的任务是从命令输出中**提取攻击面信息**，不是做总结。
+
+## 核心原则
+1. 只输出 JSON，不输出任何解释文字、前缀、后缀
+2. 每个字段都必须填写，如果没发现则为空数组/空字符串
+3. 不要编造，数字和路径必须来自原文
+4. 只提取对渗透测试有用的信息，忽略无关内容
+
+## 根据内容类型提取
+
+### http_html（HTTP 响应是 HTML 页面）
+{
+  "content_type": "http_html",
+  "summary": "一句话描述这是什么页面",
+  "headers": {
+    "server": "",
+    "cookies": [],
+    "security_headers": {"CSP": "", "HSTS": "", "X-Frame-Options": "", "CORS": ""},
+    "powered_by": ""
+  },
+  "attack_surface": {
+    "forms": [{"action": "", "method": "", "fields": [], "has_csrf": false}],
+    "links": [{"href": "", "text": ""}],
+    "scripts": [{"src": "", "inline_ajax": false}],
+    "hidden_inputs": [{"name": "", "value": ""}]
+  },
+  "fingerprint": {"framework": "", "version_hint": "", "tech_stack": []},
+  "notable": ["注释中的路径/邮箱/IP/密钥", "异常字符串"]
+}
+
+### http_json（HTTP 响应是 JSON）
+{
+  "content_type": "http_json",
+  "summary": "一句话描述",
+  "endpoints": [{"path": "", "method": "", "auth_required": false}],
+  "sensitive_fields": ["password", "token", "secret", "key"],
+  "auth_mechanism": "",
+  "notable": []
+}
+
+### javascript（JavaScript 源码）
+{
+  "content_type": "javascript",
+  "summary": "一句话描述",
+  "endpoints": [{"url": "", "method": "", "purpose": ""}],
+  "auth_logic": {"type": "", "token_storage": "", "crypto_functions": []},
+  "secrets": [{"type": "api_key/password/endpoint", "value_hint": ""}],
+  "notable": []
+}
+
+### generic（其他输出：端口扫描、目录爆破、错误信息等）
+{
+  "content_type": "generic",
+  "summary": "一句话描述",
+  "ports": [{"port": 0, "service": "", "version": ""}],
+  "vulnerabilities": [{"type": "", "location": "", "severity": ""}],
+  "credentials": [{"username": "", "password": "", "source": ""}],
+  "paths": [{"path": "", "status": 0, "note": ""}],
+  "notable": []
+}
+
+## 重要
+- 输出必须是可以被 json.loads 解析的纯净 JSON
+- 如果内容超长，优先提取接口和鉴权相关信息
+- content_type 必须与调用时传入的类型一致
 """
 
 # 英文系统提示词
@@ -87,6 +156,75 @@ Analyze penetration testing tool outputs, extract key information, and summarize
 - Numbers must be accurate, don't fabricate
 """
 
+# English extraction prompt (for extract(), Leader sync path)
+EXTRACTION_PROMPT_EN = """
+You are a penetration testing intelligence analyst. Your task is to **extract attack surface information** from command output, not to summarize.
+
+## Core Principles
+1. Output ONLY valid JSON, no explanation text, no prefix, no suffix
+2. Every field must be filled; use empty array/string if nothing found
+3. Do not fabricate — numbers and paths must come from the original text
+4. Only extract information useful for penetration testing; ignore irrelevant content
+
+## Extraction by content type
+
+### http_html (HTTP response is HTML page)
+{
+  "content_type": "http_html",
+  "summary": "One sentence describing this page",
+  "headers": {
+    "server": "",
+    "cookies": [],
+    "security_headers": {"CSP": "", "HSTS": "", "X-Frame-Options": "", "CORS": ""},
+    "powered_by": ""
+  },
+  "attack_surface": {
+    "forms": [{"action": "", "method": "", "fields": [], "has_csrf": false}],
+    "links": [{"href": "", "text": ""}],
+    "scripts": [{"src": "", "inline_ajax": false}],
+    "hidden_inputs": [{"name": "", "value": ""}]
+  },
+  "fingerprint": {"framework": "", "version_hint": "", "tech_stack": []},
+  "notable": ["comments with paths/emails/keys", "unusual strings"]
+}
+
+### http_json (HTTP response is JSON)
+{
+  "content_type": "http_json",
+  "summary": "One sentence description",
+  "endpoints": [{"path": "", "method": "", "auth_required": false}],
+  "sensitive_fields": ["password", "token", "secret", "key"],
+  "auth_mechanism": "",
+  "notable": []
+}
+
+### javascript (JavaScript source code)
+{
+  "content_type": "javascript",
+  "summary": "One sentence description",
+  "endpoints": [{"url": "", "method": "", "purpose": ""}],
+  "auth_logic": {"type": "", "token_storage": "", "crypto_functions": []},
+  "secrets": [{"type": "api_key/password/endpoint", "value_hint": ""}],
+  "notable": []
+}
+
+### generic (other output: port scan, dir brute, error messages, etc.)
+{
+  "content_type": "generic",
+  "summary": "One sentence description",
+  "ports": [{"port": 0, "service": "", "version": ""}],
+  "vulnerabilities": [{"type": "", "location": "", "severity": ""}],
+  "credentials": [{"username": "", "password": "", "source": ""}],
+  "paths": [{"path": "", "status": 0, "note": ""}],
+  "notable": []
+}
+
+## Important
+- Output must be parseable by json.loads — pure JSON only
+- If content is very long, prioritize extracting interfaces and authentication-related information
+- content_type must match the type passed in the task
+"""
+
 
 class DataAnalystConfig:
     def __init__(self):
@@ -94,8 +232,10 @@ class DataAnalystConfig:
         self.model = self.provider.model
 
         self.system_prompt = DATA_ANALYST_PROMPT_ZH
+        self.extraction_prompt = EXTRACTION_PROMPT_ZH
 
         # 处理参数
         self.trigger_threshold = 30000  # 触发阈值：超过此长度才调用数据分析员
+        self.extract_threshold = 2000   # Leader 同步提取阈值：超过此长度自动调 extract()
         self.max_input_chars = 60000    # 单次最大输入字符数（约 32K tokens）
         self.batch_size = 60000         # 分批大小

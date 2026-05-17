@@ -210,16 +210,28 @@ class SessionManager:
             for aid, old_loop in old_loops.items():
                 agents[aid] = old_loop.agent
 
+            def on_agent_progress(message: str):
+                print(message)
+                asyncio.run_coroutine_threadsafe(
+                    store_and_send_progress(session_id, "progress", message, message),
+                    main_loop
+                )
+
+            leader.on_progress = on_agent_progress
             leader.on_need_input = on_need_input
             leader.on_need_confirm = on_need_confirm
             for aid, agent in agents.items():
+                if hasattr(agent, 'on_progress'):
+                    agent.on_progress = on_agent_progress
                 if hasattr(agent, 'on_need_input'):
                     agent.on_need_input = on_need_input
             if pool and hasattr(pool, 'set_new_instance_callback'):
-                pool.set_new_instance_callback(
-                    lambda iid, agent: setattr(agent, 'on_need_input', on_need_input)
-                    if hasattr(agent, 'on_need_input') else None
-                )
+                def _setup_new_instance(iid, agent):
+                    if hasattr(agent, 'on_progress'):
+                        agent.on_progress = on_agent_progress
+                    if hasattr(agent, 'on_need_input'):
+                        agent.on_need_input = on_need_input
+                pool.set_new_instance_callback(_setup_new_instance)
 
             def make_stream_callback(agent_name: str):
                 def on_stream_chunk(chunk: str):
@@ -310,17 +322,28 @@ class SessionManager:
             )
         comm_bus.on_send = on_agent_message
 
-        # 8. Leader 回调
-        leader.on_progress = None
+        # 8. Leader 回调 + Agent 进度回调
+        def on_agent_progress(message: str):
+            print(message)
+            asyncio.run_coroutine_threadsafe(
+                store_and_send_progress(session_id, "progress", message, message),
+                main_loop
+            )
+
+        leader.on_progress = on_agent_progress
         leader.on_need_input = on_need_input
         leader.on_need_confirm = on_need_confirm
         for iid, agent in pool.list_instances().items():
+            if hasattr(agent, 'on_progress'):
+                agent.on_progress = on_agent_progress
             if hasattr(agent, 'on_need_input'):
                 agent.on_need_input = on_need_input
-        pool.set_new_instance_callback(
-            lambda iid, agent: setattr(agent, 'on_need_input', on_need_input)
-            if hasattr(agent, 'on_need_input') else None
-        )
+        def _setup_new_instance(iid, agent):
+            if hasattr(agent, 'on_progress'):
+                agent.on_progress = on_agent_progress
+            if hasattr(agent, 'on_need_input'):
+                agent.on_need_input = on_need_input
+        pool.set_new_instance_callback(_setup_new_instance)
 
         def make_stream_callback(agent_name: str):
             def on_stream_chunk(chunk: str):

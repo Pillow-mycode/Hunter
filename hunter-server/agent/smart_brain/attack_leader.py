@@ -7,7 +7,9 @@ from agent.pojo.leader_config import AttackLeaderConfig
 from agent.pojo.attack_config import AttackToolMasterConfig
 from agent.smart_brain.hardcoded_rules import HardcodedRules, RuleResult
 from agent.team.agent_base import AgentBase
-from agent.system.system_command import write_to_logs
+from agent.system.system_command import write_to_logs, sys_shell
+from agent.system.output_handler import process_long_output
+from agent.smart_brain.data_analyst import get_data_analyst
 from agent.team.protocol import MSG_TASK_RESULT, MSG_ANALYSIS_RESULT, MSG_INPUT_ALERT
 from llm.token_counter import get_token_counter
 
@@ -94,6 +96,7 @@ class AttackLeader(AgentBase):
 
         self.agent_pool = agent_pool
         self._last_dispatched_instruction = ""
+        self._last_local_result = ""  # 上一轮本地命令执行结果
         self._last_confirmed_step = -1  # 防止 check_loop_limit 重复确认
 
         # 回调
@@ -192,6 +195,58 @@ class AttackLeader(AgentBase):
         if self.on_progress:
             self.on_progress(self._msg("msg_reply", message=message))
         print(self._msg("msg_reply", message=message))
+
+    def execute_local(self, command: str):
+        """直接执行 shell 命令（AgentLoop 通过 execute_local 动作调用）
+
+        输出 > 2K 时同步调用 DataAnalyst.extract() 提取结构化情报，
+        Leader 只消费提取结果，不被 raw output 淹没上下文。
+        """
+        self._notify_progress(f"[CMD_START]{command}")
+        result = sys_shell(command)
+        if not isinstance(result, str):
+            result = str(result)
+
+        task_id = self.context.get("task_id", "leader")
+
+        if len(result) > 2000:
+            # 委托 DataAnalyst 同步提取攻击面
+            self._notify_progress(f"[数据分析员] 提取分析中 ({len(result)} 字符)...")
+            content_type = self._classify_output(command, result)
+            analyst = get_data_analyst()
+            summary = analyst.extract(result, content_type, command=command, task_id=task_id)
+            self._last_local_result = summary[:3000]
+            self._notify_progress(f"[CMD_OUTPUT]{summary[:3000]}")
+        else:
+            # 短输出直接消费
+            result_clean, file_path = process_long_output(
+                result, command, task_id, threshold=30000
+            )
+            self._last_local_result = result_clean[:3000]
+            self._notify_progress(f"[CMD_OUTPUT]{result_clean[:3000]}")
+            if file_path:
+                self._notify_progress(f"[文件] 完整结果已保存: {file_path}")
+
+        self._notify_progress("[CMD_END]")
+        self.context["action_count"] = self.context.get("action_count", 0) + 1
+        self.context.setdefault("history", []).append({
+            "step": self.context["action_count"],
+            "instruction": f"[直接执行] {command[:150]}",
+            "status": "success",
+            "summary": self._last_local_result[:200],
+            "content": self._last_local_result[:500],
+        })
+
+    def _classify_output(self, command: str, output: str) -> str:
+        """判断命令输出类型，决定 DataAnalyst 提取策略"""
+        head = output[:1000].lower()
+        if '<html' in head or '<!doctype html' in head or 'text/html' in output[:500].lower():
+            return 'http_html'
+        if command.endswith('.js') or 'cat ' in command and '.js' in command:
+            return 'javascript'
+        if output.strip().startswith('{') or output.strip().startswith('['):
+            return 'http_json'
+        return 'generic'
 
     # ── 上下文初始化 ─────────────────────────────────────────
 
@@ -420,10 +475,16 @@ class AttackLeader(AgentBase):
 }}
 
 {{
+    "type": "execute_command",
+    "command": "要直接执行的 shell 命令（curl/wget/grep/cat 等通用命令）",
+    "reason": "为什么要自己执行"
+}}
+
+{{
     "type": "execute_task",
     "target": "tool_master",
-    "instruction": "告诉武器大师要做什么",
-    "reason": "为什么要这么做"
+    "instruction": "告诉武器大师要做什么（nmap/sqlmap/hydra 等专业安全工具）",
+    "reason": "为什么要委托武器大师"
 }}
 
 {{
@@ -496,7 +557,7 @@ class AttackLeader(AgentBase):
                 self._last_confirmed_step = current_step
             # 确认后继续，让 LLM 决策下一行动
 
-        # 5. 构建状态更新（已派发 + 已完成）
+        # 5. 构建状态更新（已派发 + 已完成 + 本地命令结果）
         wakeup_parts = []
         if self._last_dispatched_instruction:
             wakeup_parts.append(f"已派发: {self._last_dispatched_instruction}")
@@ -504,6 +565,9 @@ class AttackLeader(AgentBase):
         if completed_parts:
             wakeup_parts.append("已完成:")
             wakeup_parts.extend(completed_parts)
+        if self._last_local_result:
+            wakeup_parts.append(f"## 你上一步直接执行的命令结果\n{self._last_local_result[:2000]}\n（基于此结果决定下一步）")
+            self._last_local_result = ""
         wakeup_text = ""
         if wakeup_parts:
             wakeup_text = "## 状态更新\n" + "\n".join(wakeup_parts) + "\n"
@@ -532,11 +596,15 @@ class AttackLeader(AgentBase):
                 "type": "complete",
                 "summary": decision.get("reason", "任务完成"),
             }
+        elif dtype == "execute_command":
+            return {
+                "type": "execute_local",
+                "action": "shell",
+                "command": decision.get("command", ""),
+            }
         elif dtype == "execute_task":
             target_type = decision.get("target", "tool_master")
             instruction = decision.get("instruction", "")
-
-            self._last_dispatched_instruction = instruction
 
             target = target_type
             if self.agent_pool:
@@ -550,6 +618,13 @@ class AttackLeader(AgentBase):
                     if aid.startswith(f"{target_type}_"):
                         target = aid
                         break
+
+            # 确认派发目标存在才记录
+            if target == target_type:
+                # 无法解析为具体实例 ID，放弃本轮派发
+                return {"type": "wait"}
+
+            self._last_dispatched_instruction = instruction
 
             result = {
                 "type": "delegate",
