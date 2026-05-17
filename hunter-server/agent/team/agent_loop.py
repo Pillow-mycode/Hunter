@@ -33,15 +33,15 @@ class AgentLoop(threading.Thread):
         self.mission_complete = threading.Event()
         self._stop_flag = threading.Event()
         self._result: dict = {}
-        self._started = False
+        self._loop_started = False
         # Let the agent check the stop flag during long-running operations
         self.agent._abort_event = self._stop_flag
 
     def start(self):
         """幂等启动：如果已启动则跳过"""
-        if self._started:
+        if self._loop_started:
             return
-        self._started = True
+        self._loop_started = True
         super().start()
 
     # ── 主循环 ────────────────────────────────────────────────
